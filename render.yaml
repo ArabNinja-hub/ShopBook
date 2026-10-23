@@ -1,0 +1,53 @@
+# Deployment-ready Render Blueprint for ShopBook (Milestone 2)
+# NOTE: Prepared for review only — DO NOT deploy or create paid services without explicit authorization.
+#
+# Verified Monthly Cost (researched 2026-10-23, https://render.com/pricing):
+# - Render Hobby Workspace:             $0.00/mo (includes 5 GB outbound bandwidth)
+# - Render Starter Web Service:         $7.00/mo (24/7 always-on, 0.5 CPU, 512 MB RAM)
+# - Render Basic-256mb PostgreSQL 16:   $6.00/mo (1 GB SSD, 3-day continuous PITR + 7-day logical exports)
+# - Total Pilot / Initial Production:  $13.00/mo (~K261.56/mo at BoZ mid-rate 1 USD = K20.12 on 2026-10-23)
+
+databases:
+  - name: shopbook-postgres
+    databaseName: shopbook
+    user: shopbook_app
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    region: frankfurt
+    ipAllowList: [] # Restrict external public DB connections; allow private Render network only
+
+services:
+  - type: web
+    name: shopbook-app
+    runtime: node
+    plan: starter
+    region: frankfurt
+    buildCommand: npm ci && npm run build
+    preDeployCommand: npm run db:migrate
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shopbook-postgres
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SERVE_STATIC_DIST
+        value: "true"
+      - key: DEFAULT_PILOT_EXEMPT
+        value: "true"
+      - key: ENFORCE_SUBSCRIPTIONS
+        value: "false"
+      - key: LOG_LEVEL
+        value: info
