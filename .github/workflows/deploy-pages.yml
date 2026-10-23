@@ -1,0 +1,76 @@
+# Builds ShopBook and publishes the static frontend to GitHub Pages.
+#
+# Important: GitHub Pages only serves static files. The Express/Fastify API and
+# PostgreSQL database in `server/` are NOT deployed here and must be hosted
+# separately (see docs/DEPLOYMENT_AND_BACKUPS.md). Without that API the app runs
+# fully offline against the browser's IndexedDB ledger and tells the shop owner so.
+#
+# `VITE_BASE_PATH=/ShopBook/` is required because this is a GitHub Pages *project*
+# site served from https://<owner>.github.io/ShopBook/ — not from the domain root.
+
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build for GitHub Pages
+        env:
+          VITE_BASE_PATH: /ShopBook/
+        run: npm run build
+
+      - name: Verify asset paths fit the /ShopBook/ base
+        env:
+          VITE_BASE_PATH: /ShopBook/
+        run: npm run verify:dist
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
