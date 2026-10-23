@@ -7,7 +7,6 @@ import { Banner } from './ui/Banner';
 import {
   ChevronRightIcon,
   CreditIcon,
-  PlusIcon,
   SellIcon,
   StockIcon,
 } from './ui/icons';
@@ -213,20 +212,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
       <div className="sb-stat-grid">
         <div className="sb-stat-card">
-          <div className="sb-stat-label">Sales today</div>
-          <div
+          <span className="sb-stat-label">Sales today</span>
+          <span
             className="sb-stat-value"
             aria-busy={isDataLoading ? 'true' : undefined}
           >
             {isDataLoading ? '—' : formatNgwee(todaySalesNgwee ?? 0)}
-          </div>
-          <div className="sb-stat-caption">
+          </span>
+          <span className="sb-stat-caption">
             {loadFailed
               ? 'Could not read sales on this device'
               : todaySalesCount === null
                 ? 'Loading…'
                 : `${todaySalesCount} ${todaySalesCount === 1 ? 'sale' : 'sales'} recorded`}
-          </div>
+          </span>
         </div>
 
         <button
@@ -234,13 +233,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           className="sb-stat-card is-action"
           onClick={onViewCredit}
         >
-          <div className="sb-stat-label">Money owed</div>
-          <div className="sb-stat-value">{formatNgwee(moneyOwed.total)}</div>
-          <div className="sb-stat-caption">
+          <span className="sb-stat-label">Money owed</span>
+          <span className="sb-stat-value">{formatNgwee(moneyOwed.total)}</span>
+          <span className="sb-stat-caption">
             {moneyOwed.count === 0
               ? 'Nobody owes you money'
-              : `${moneyOwed.count} ${moneyOwed.count === 1 ? 'customer' : 'customers'} owe you`}
-          </div>
+              : moneyOwed.count === 1
+                ? '1 customer owes you'
+                : `${moneyOwed.count} customers owe you`}
+          </span>
         </button>
       </div>
 
@@ -360,7 +361,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </section>
 
       <p className="sb-home-footer">
-        <PlusIcon className="sb-inline-icon" />
         Tip: record every sale, even the small ones — the totals only help if
         they are complete.
       </p>

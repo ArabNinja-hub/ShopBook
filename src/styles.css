@@ -549,6 +549,7 @@ dd {
 }
 
 .sb-stat-label {
+  display: block;
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--sb-text-muted);
@@ -557,6 +558,7 @@ dd {
 }
 
 .sb-stat-value {
+  display: block;
   font-size: 1.45rem;
   font-weight: 700;
   letter-spacing: -0.01em;
@@ -570,6 +572,7 @@ dd {
 }
 
 .sb-stat-caption {
+  display: block;
   font-size: 0.8rem;
   color: var(--sb-text-muted);
 }
