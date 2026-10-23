@@ -16,6 +16,8 @@ import {
   recordRepayment,
   updateCustomer,
 } from '../services/creditService';
+import { Banner } from './ui/Banner';
+import { Modal } from './ui/Modal';
 
 interface CreditScreenProps {
   customers: CustomerCreditSummary[];
@@ -158,7 +160,7 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
           phone: custPhoneInput,
           notes: custNotesInput,
         });
-        setStatusMessage(`Added customer "${created.name}" to credit book.`);
+        setStatusMessage(`Added customer "${created.name}" to the credit book.`);
       }
       setIsCustomerModalOpen(false);
       await onDataChanged();
@@ -193,7 +195,7 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
       });
 
       const methodLabel =
-        repayMethod === 'mobile_money' ? 'Mobile Money (manual)' : 'Cash';
+        repayMethod === 'mobile_money' ? 'Mobile Money (recorded by hand)' : 'Cash';
       setStatusMessage(
         `Recorded repayment of ${formatNgwee(amountNgwee)} (${methodLabel}) from ${repayTarget.customer.name}.`
       );
@@ -208,171 +210,304 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
     }
   };
 
-  // Customer Statement Detail View
-  if (selectedCustomerId && statementSummary) {
-    const owing = statementSummary.outstandingBalanceNgwee;
+  const renderCustomerModal = () => (
+    <Modal
+      isOpen={isCustomerModalOpen}
+      onClose={() => setIsCustomerModalOpen(false)}
+      title={isEditingCustomer ? 'Edit customer' : 'Add customer'}
+      closeLabel="Close customer"
+      dismissible={!isSavingCustomer}
+    >
+      {errorMessage && (
+        <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+          {errorMessage}
+        </Banner>
+      )}
+      <form onSubmit={handleSaveCustomer}>
+        <div className="sb-field">
+          <label className="sb-label" htmlFor="cust-name">
+            Customer name
+          </label>
+          <input
+            id="cust-name"
+            type="text"
+            className="sb-input"
+            placeholder="e.g. Mama Mulenga"
+            value={custNameInput}
+            onChange={(e) => setCustNameInput(e.target.value)}
+            required
+          />
+        </div>
+
+        <div className="sb-field">
+          <label className="sb-label" htmlFor="cust-phone">
+            Phone number (optional)
+          </label>
+          <input
+            id="cust-phone"
+            type="tel"
+            className="sb-input"
+            placeholder="e.g. 0977123456"
+            value={custPhoneInput}
+            onChange={(e) => setCustPhoneInput(e.target.value)}
+          />
+        </div>
+
+        <div className="sb-field">
+          <label className="sb-label" htmlFor="cust-notes">
+            Where they live or a note (optional)
+          </label>
+          <input
+            id="cust-notes"
+            type="text"
+            className="sb-input"
+            placeholder="e.g. House near market gate"
+            value={custNotesInput}
+            onChange={(e) => setCustNotesInput(e.target.value)}
+          />
+        </div>
+
+        <div className="sb-dialog-actions">
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={isSavingCustomer}
+            onClick={() => setIsCustomerModalOpen(false)}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="sb-btn sb-btn-primary sb-btn-block"
+            disabled={isSavingCustomer}
+          >
+            {isSavingCustomer ? 'Saving…' : 'Save customer'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+
+  const renderRepaymentModal = () => {
+    if (!repayTarget) return null;
+    const balance = repayTarget.outstandingBalanceNgwee;
+
     return (
-      <div>
-        <div style={{ marginBottom: 10 }}>
+      <Modal
+        isOpen
+        onClose={() => setRepayTarget(null)}
+        title={`Record a payment — ${repayTarget.customer.name}`}
+        closeLabel="Close payment"
+        dismissible={!isSavingRepayment}
+      >
+        <Banner tone="warning">
+          This only updates the credit book in ShopBook. It does not move money.
+          Check that you have the cash or mobile money first.
+        </Banner>
+
+        {errorMessage && (
+          <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+            {errorMessage}
+          </Banner>
+        )}
+
+        <div className="sb-balance-row">
+          <span>Owes now</span>
+          <strong className="sb-balance-value">{formatNgwee(balance)}</strong>
           <button
             type="button"
             className="sb-btn sb-btn-sm"
-            onClick={() => setSelectedCustomerId(null)}
+            onClick={() => setRepayAmountInput(formatNgweePlain(balance))}
           >
-            ← Back to Customers
+            Pay full amount
           </button>
         </div>
 
-        {statusMessage && (
-          <div className="sb-alert sb-alert-success" role="status">
-            <span>{statusMessage}</span>
+        <form onSubmit={handleSaveRepayment}>
+          <div className="sb-field">
+            <label className="sb-label" htmlFor="repay-amount">
+              Amount Received (Kwacha)
+            </label>
+            <input
+              id="repay-amount"
+              type="text"
+              inputMode="decimal"
+              className="sb-input"
+              placeholder="e.g. 50.00"
+              value={repayAmountInput}
+              onChange={(e) => setRepayAmountInput(e.target.value)}
+              required
+            />
+          </div>
+
+          <fieldset className="sb-fieldset">
+            <legend className="sb-label">How did they pay?</legend>
+            <div className="sb-segment sb-segment-2">
+              <button
+                type="button"
+                className={`sb-segment-btn ${repayMethod === 'cash' ? 'is-selected' : ''}`}
+                aria-pressed={repayMethod === 'cash'}
+                onClick={() => setRepayMethod('cash')}
+              >
+                Cash
+              </button>
+              <button
+                type="button"
+                className={`sb-segment-btn ${repayMethod === 'mobile_money' ? 'is-selected' : ''}`}
+                aria-pressed={repayMethod === 'mobile_money'}
+                onClick={() => setRepayMethod('mobile_money')}
+              >
+                Mobile Money
+              </button>
+            </div>
+          </fieldset>
+
+          <div className="sb-field">
+            <label className="sb-label" htmlFor="repay-note">
+              Note or reference (optional)
+            </label>
+            <input
+              id="repay-note"
+              type="text"
+              className="sb-input"
+              placeholder="e.g. Airtel Money ref"
+              value={repayNoteInput}
+              onChange={(e) => setRepayNoteInput(e.target.value)}
+            />
+          </div>
+
+          <div className="sb-dialog-actions">
             <button
               type="button"
-              className="sb-btn sb-btn-sm"
-              onClick={() => setStatusMessage(null)}
+              className="sb-btn"
+              disabled={isSavingRepayment}
+              onClick={() => setRepayTarget(null)}
             >
-              Dismiss
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="sb-btn sb-btn-primary sb-btn-block"
+              disabled={isSavingRepayment}
+            >
+              {isSavingRepayment ? 'Saving…' : 'Confirm payment'}
             </button>
           </div>
+        </form>
+      </Modal>
+    );
+  };
+
+  // Customer statement detail view
+  if (selectedCustomerId && statementSummary) {
+    const owing = statementSummary.outstandingBalanceNgwee;
+
+    return (
+      <div>
+        <button
+          type="button"
+          className="sb-back-btn"
+          onClick={() => setSelectedCustomerId(null)}
+        >
+          ← Back to credit
+        </button>
+
+        {statusMessage && (
+          <Banner tone="success" onDismiss={() => setStatusMessage(null)}>
+            {statusMessage}
+          </Banner>
         )}
 
         <div className="sb-card">
           <div className="sb-card-header">
             <div>
-              <h2 className="sb-card-title" style={{ fontSize: '1.12rem' }}>
+              <h1 className="sb-card-title sb-statement-title">
                 {statementSummary.customer.name}
-              </h2>
-              <div className="sb-card-subtitle">
-                {statementSummary.customer.phone
-                  ? `Phone: ${statementSummary.customer.phone}`
-                  : 'No phone number recorded'}
+              </h1>
+              <p className="sb-card-subtitle">
+                {statementSummary.customer.phone || 'No phone number'}
                 {statementSummary.customer.notes
                   ? ` · ${statementSummary.customer.notes}`
                   : ''}
-              </div>
+              </p>
             </div>
             <button
               type="button"
               className="sb-btn sb-btn-sm"
               onClick={() => openEditCustomerModal(statementSummary)}
             >
-              Edit Details
+              Edit details
             </button>
           </div>
 
           <div
-            style={{
-              padding: 12,
-              borderRadius: 'var(--sb-radius-sm)',
-              backgroundColor:
-                owing > 0 ? 'var(--sb-amber-bg)' : 'var(--sb-green-100)',
-              border: `1px solid ${owing > 0 ? 'var(--sb-amber-border)' : 'var(--sb-green-200)'}`,
-              marginBottom: 12,
-            }}
+            className={`sb-balance-card ${owing > 0 ? 'is-owing' : 'is-settled'}`}
           >
-            <div className="sb-row-between">
-              <div>
-                <div style={{ fontSize: '0.8rem', fontWeight: 700 }}>
-                  OUTSTANDING BALANCE OWED
-                </div>
-                <div
-                  style={{
-                    fontSize: '1.45rem',
-                    fontWeight: 800,
-                    color:
-                      owing > 0 ? 'var(--sb-amber-text)' : 'var(--sb-pine-900)',
-                  }}
-                >
-                  {formatNgwee(owing)}
-                </div>
+            <div>
+              <div className="sb-balance-label">
+                {owing > 0 ? 'Money owed' : 'Fully paid'}
               </div>
-              <button
-                type="button"
-                className="sb-btn sb-btn-primary"
-                disabled={owing <= 0}
-                onClick={() => openRepaymentModal(statementSummary)}
-              >
-                {owing > 0 ? 'Record Repayment' : 'Settled'}
-              </button>
+              <div className="sb-balance-value">{formatNgwee(owing)}</div>
             </div>
-            <div
-              style={{
-                marginTop: 8,
-                fontSize: '0.8rem',
-                color: 'var(--sb-text-muted)',
-              }}
+            <button
+              type="button"
+              className="sb-btn sb-btn-primary"
+              disabled={owing <= 0}
+              onClick={() => openRepaymentModal(statementSummary)}
             >
-              Total credit taken:{' '}
-              <strong>{formatNgwee(statementSummary.totalCreditNgwee)}</strong>{' '}
-              · Total repaid:{' '}
-              <strong>{formatNgwee(statementSummary.totalRepaidNgwee)}</strong>
-            </div>
+              {owing > 0 ? 'Record payment' : 'Paid up'}
+            </button>
           </div>
 
-          <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem' }}>
-            Transaction History ({ledgerEntries.length})
-          </h3>
+          <p className="sb-hint">
+            Credit taken: {formatNgwee(statementSummary.totalCreditNgwee)} ·
+            Repaid: {formatNgwee(statementSummary.totalRepaidNgwee)}
+          </p>
+
+          <h2 className="sb-section-title">History</h2>
           {isLoadingStatement ? (
-            <p style={{ color: 'var(--sb-text-muted)' }}>Loading history...</p>
+            <p className="sb-empty-text">Loading history…</p>
           ) : ledgerEntries.length === 0 ? (
-            <p
-              style={{
-                margin: 0,
-                fontSize: '0.88rem',
-                color: 'var(--sb-text-muted)',
-              }}
-            >
-              No credit sales or repayments recorded for this customer yet. To
-              record a credit sale, choose <strong>Credit Book</strong> on the
-              Sell screen.
+            <p className="sb-empty-text">
+              Nothing recorded yet. Choose <strong>Credit Book</strong> on the
+              Sell screen to give this customer goods on credit.
             </p>
           ) : (
-            <div className="sb-list-divider">
+            <ul className="sb-list-divider">
               {ledgerEntries.map((entry) => {
                 const isCharge = entry.type === 'credit_sale';
                 return (
-                  <div key={entry.id} className="sb-row-between">
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                  <li key={entry.id} className="sb-history-row">
+                    <div className="sb-history-text">
+                      <span className="sb-history-name">
                         {isCharge
-                          ? 'Bought on Credit'
-                          : `Repayment (${entry.paymentMethod === 'mobile_money' ? 'Mobile Money' : 'Cash'})`}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '0.8rem',
-                          color: 'var(--sb-text-muted)',
-                        }}
-                      >
+                          ? 'Bought on credit'
+                          : `Payment (${entry.paymentMethod === 'mobile_money' ? 'Mobile Money' : 'Cash'})`}
+                      </span>
+                      <span className="sb-history-meta">
                         {formatDateTimeReadable(entry.createdAt)}
                         {entry.note ? ` · ${entry.note}` : ''}
-                      </div>
+                      </span>
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          color: isCharge
-                            ? 'var(--sb-red-text)'
-                            : 'var(--sb-green-700)',
-                        }}
+                    <div className="sb-history-change">
+                      <span
+                        className={
+                          isCharge
+                            ? 'sb-history-delta is-down'
+                            : 'sb-history-delta is-up'
+                        }
                       >
                         {isCharge ? '+' : '−'}
                         {formatNgwee(entry.amountNgwee)}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '0.76rem',
-                          color: 'var(--sb-text-muted)',
-                        }}
-                      >
-                        Bal: {formatNgwee(entry.runningBalanceNgwee)}
-                      </div>
+                      </span>
+                      <span className="sb-history-meta">
+                        Balance {formatNgwee(entry.runningBalanceNgwee)}
+                      </span>
                     </div>
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </div>
 
@@ -382,322 +517,89 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
     );
   }
 
-  function renderCustomerModal() {
-    if (!isCustomerModalOpen) return null;
-    return (
-      <div
-        className="sb-modal-backdrop"
-        onClick={() => !isSavingCustomer && setIsCustomerModalOpen(false)}
-      >
-        <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="sb-modal-header">
-            <h2 className="sb-modal-title">
-              {isEditingCustomer ? 'Edit Customer' : 'Add Credit Customer'}
-            </h2>
-            <button
-              type="button"
-              className="sb-close-btn"
-              disabled={isSavingCustomer}
-              onClick={() => setIsCustomerModalOpen(false)}
-              aria-label="Close modal"
-            >
-              ×
-            </button>
-          </div>
-
-          {errorMessage && (
-            <div className="sb-alert sb-alert-error" role="alert">
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSaveCustomer}>
-            <div className="sb-field">
-              <label className="sb-label" htmlFor="cust-name">
-                Customer Name *
-              </label>
-              <input
-                id="cust-name"
-                type="text"
-                className="sb-input"
-                placeholder="e.g. Mama Mulenga"
-                value={custNameInput}
-                onChange={(e) => setCustNameInput(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="sb-field">
-              <label className="sb-label" htmlFor="cust-phone">
-                Phone Number (optional)
-              </label>
-              <input
-                id="cust-phone"
-                type="tel"
-                className="sb-input"
-                placeholder="e.g. 0977123456"
-                value={custPhoneInput}
-                onChange={(e) => setCustPhoneInput(e.target.value)}
-              />
-            </div>
-
-            <div className="sb-field">
-              <label className="sb-label" htmlFor="cust-notes">
-                Location or Notes (optional)
-              </label>
-              <input
-                id="cust-notes"
-                type="text"
-                className="sb-input"
-                placeholder="e.g. House near market gate"
-                value={custNotesInput}
-                onChange={(e) => setCustNotesInput(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="sb-btn"
-                disabled={isSavingCustomer}
-                onClick={() => setIsCustomerModalOpen(false)}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="sb-btn sb-btn-primary sb-btn-block"
-                disabled={isSavingCustomer}
-              >
-                {isSavingCustomer ? 'Saving...' : 'Save Customer'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  function renderRepaymentModal() {
-    if (!repayTarget) return null;
-    const balance = repayTarget.outstandingBalanceNgwee;
-    return (
-      <div
-        className="sb-modal-backdrop"
-        onClick={() => !isSavingRepayment && setRepayTarget(null)}
-      >
-        <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-          <div className="sb-modal-header">
-            <h2 className="sb-modal-title">
-              Record Repayment — {repayTarget.customer.name}
-            </h2>
-            <button
-              type="button"
-              className="sb-close-btn"
-              disabled={isSavingRepayment}
-              onClick={() => setRepayTarget(null)}
-              aria-label="Close modal"
-            >
-              ×
-            </button>
-          </div>
-
-          <div className="sb-alert sb-alert-warn">
-            <span>
-              <strong>Debt-book record only:</strong> Recording a repayment
-              updates this customer&apos;s balance in ShopBook; it does not
-              transfer or process money electronically.
-            </span>
-          </div>
-
-          {errorMessage && (
-            <div className="sb-alert sb-alert-error" role="alert">
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          <div
-            className="sb-row-between"
-            style={{
-              padding: '10px 12px',
-              borderRadius: 'var(--sb-radius-sm)',
-              backgroundColor: 'var(--sb-surface-subtle)',
-              border: '1px solid var(--sb-border)',
-              marginBottom: 12,
-            }}
-          >
-            <span>Currently Owing:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <strong style={{ fontSize: '1.1rem' }}>
-                {formatNgwee(balance)}
-              </strong>
-              <button
-                type="button"
-                className="sb-btn sb-btn-sm"
-                onClick={() => setRepayAmountInput(formatNgweePlain(balance))}
-              >
-                Pay Full
-              </button>
-            </div>
-          </div>
-
-          <form onSubmit={handleSaveRepayment}>
-            <div className="sb-field">
-              <label className="sb-label" htmlFor="repay-amount">
-                Amount Received (Kwacha) *
-              </label>
-              <input
-                id="repay-amount"
-                type="text"
-                inputMode="decimal"
-                className="sb-input"
-                placeholder="e.g. 50.00"
-                value={repayAmountInput}
-                onChange={(e) => setRepayAmountInput(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="sb-field">
-              <span className="sb-label">How Was Payment Received?</span>
-              <div className="sb-grid-2">
-                <button
-                  type="button"
-                  className={`sb-pay-option ${repayMethod === 'cash' ? 'is-selected' : ''}`}
-                  onClick={() => setRepayMethod('cash')}
-                >
-                  Cash
-                </button>
-                <button
-                  type="button"
-                  className={`sb-pay-option ${repayMethod === 'mobile_money' ? 'is-selected' : ''}`}
-                  onClick={() => setRepayMethod('mobile_money')}
-                >
-                  Mobile Money (Manual)
-                </button>
-              </div>
-            </div>
-
-            <div className="sb-field">
-              <label className="sb-label" htmlFor="repay-note">
-                Note / Reference (optional)
-              </label>
-              <input
-                id="repay-note"
-                type="text"
-                className="sb-input"
-                placeholder="e.g. Paid cash at stall / Airtel Money ref"
-                value={repayNoteInput}
-                onChange={(e) => setRepayNoteInput(e.target.value)}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                type="button"
-                className="sb-btn"
-                disabled={isSavingRepayment}
-                onClick={() => setRepayTarget(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="sb-btn sb-btn-primary sb-btn-block"
-                disabled={isSavingRepayment}
-              >
-                {isSavingRepayment ? 'Saving...' : 'Confirm Repayment'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div>
+      <header className="sb-page-head">
+        <h1 className="sb-page-title">Credit</h1>
+        <p className="sb-page-subtitle">Who owes you money, and what they paid.</p>
+      </header>
+
       {statusMessage && (
-        <div className="sb-alert sb-alert-success" role="status">
-          <span>{statusMessage}</span>
-          <button
-            type="button"
-            className="sb-btn sb-btn-sm"
-            onClick={() => setStatusMessage(null)}
-          >
-            Dismiss
-          </button>
-        </div>
+        <Banner tone="success" onDismiss={() => setStatusMessage(null)}>
+          {statusMessage}
+        </Banner>
+      )}
+      {errorMessage && !isCustomerModalOpen && !repayTarget && (
+        <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+          {errorMessage}
+        </Banner>
       )}
 
-      <div className="sb-card">
-        <div className="sb-row-between" style={{ flexWrap: 'wrap' }}>
-          <div>
-            <div className="sb-metric-label">Total Outstanding Customer Credit</div>
-            <div className="sb-metric-value">
-              {formatNgwee(totals.totalOwingNgwee)}
-            </div>
-            <div style={{ fontSize: '0.83rem', color: 'var(--sb-text-muted)' }}>
-              {totals.owingCount === 0
-                ? 'No customers currently owe money'
-                : `Owed across ${totals.owingCount} ${totals.owingCount === 1 ? 'customer' : 'customers'} (calculated from ledger)`}
-            </div>
+      <div className="sb-card sb-credit-summary">
+        <div>
+          <div className="sb-stat-label">Money owed to you</div>
+          <div className="sb-stat-value">{formatNgwee(totals.totalOwingNgwee)}</div>
+          <div className="sb-stat-caption">
+            {totals.owingCount === 0
+              ? 'Nobody owes you money'
+              : `Across ${totals.owingCount} ${totals.owingCount === 1 ? 'customer' : 'customers'}`}
           </div>
+        </div>
+        <button
+          type="button"
+          className="sb-btn sb-btn-primary"
+          onClick={openAddCustomerModal}
+        >
+          Add customer
+        </button>
+      </div>
+
+      <div className="sb-search-wrap sb-search-row">
+        <input
+          type="search"
+          className="sb-input"
+          placeholder="Search by name or phone…"
+          aria-label="Search customers"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {search && (
           <button
             type="button"
-            className="sb-btn sb-btn-primary"
-            onClick={openAddCustomerModal}
+            className="sb-search-clear"
+            aria-label="Clear search"
+            onClick={() => setSearch('')}
           >
-            + Add Customer
+            ×
           </button>
-        </div>
+        )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <div className="sb-search-wrap">
-          <input
-            type="search"
-            className="sb-input"
-            placeholder="Search customer name or phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {search && (
-            <button
-              type="button"
-              className="sb-search-clear"
-              aria-label="Clear search"
-              onClick={() => setSearch('')}
-            >
-              ×
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div className="sb-pills">
+      <div className="sb-pills" role="group" aria-label="Credit filters">
         <button
           type="button"
           className={`sb-pill ${!filterOwingOnly ? 'is-active' : ''}`}
+          aria-pressed={!filterOwingOnly}
           onClick={() => setFilterOwingOnly(false)}
         >
-          All Customers ({customers.length})
+          All customers ({customers.length})
         </button>
         <button
           type="button"
           className={`sb-pill ${filterOwingOnly ? 'is-active' : ''}`}
+          aria-pressed={filterOwingOnly}
           onClick={() => setFilterOwingOnly(true)}
         >
-          Owing Money ({totals.owingCount})
+          Owing money ({totals.owingCount})
         </button>
       </div>
 
       {filteredCustomers.length === 0 ? (
-        <div className="sb-card" style={{ textAlign: 'center', padding: 22 }}>
-          <p style={{ margin: '0 0 12px', color: 'var(--sb-text-muted)' }}>
+        <div className="sb-card sb-empty-state">
+          <p className="sb-empty-text">
             {customers.length === 0
-              ? 'No customers in your credit book yet. Add regular customers here to track credit sales and repayments reliably.'
-              : 'No matching customers found.'}
+              ? 'No customers in your credit book yet. Add the people you sell to on credit.'
+              : 'No customer matches that.'}
           </p>
           {customers.length === 0 && (
             <button
@@ -705,46 +607,38 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
               className="sb-btn sb-btn-primary"
               onClick={openAddCustomerModal}
             >
-              + Add First Customer
+              Add customer
             </button>
           )}
         </div>
       ) : (
-        <div className="sb-product-list">
+        <ul className="sb-product-list">
           {filteredCustomers.map((summary) => {
             const owing = summary.outstandingBalanceNgwee;
             return (
-              <div
-                key={summary.customer.id}
-                className="sb-product-row"
-                style={{ flexWrap: 'wrap' }}
-              >
-                <div className="sb-product-info" style={{ minWidth: 190 }}>
+              <li key={summary.customer.id} className="sb-product-row is-credit-row">
+                <div className="sb-product-info">
                   <div className="sb-product-name">{summary.customer.name}</div>
                   <div className="sb-product-meta">
-                    {summary.customer.phone && (
-                      <span>{summary.customer.phone}</span>
-                    )}
+                    {summary.customer.phone && <span>{summary.customer.phone}</span>}
                     {owing > 0 ? (
                       <span className="sb-badge sb-badge-low">
                         Owes {formatNgwee(owing)}
                       </span>
                     ) : (
-                      <span className="sb-badge sb-badge-ok">
-                        Settled · K0.00
-                      </span>
+                      <span className="sb-badge sb-badge-ok">Paid up</span>
                     )}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="sb-row-actions">
                   {owing > 0 && (
                     <button
                       type="button"
                       className="sb-btn sb-btn-primary sb-btn-sm"
                       onClick={() => openRepaymentModal(summary)}
                     >
-                      Record Payment
+                      Record payment
                     </button>
                   )}
                   <button
@@ -755,10 +649,10 @@ export const CreditScreen: React.FC<CreditScreenProps> = ({
                     Statement
                   </button>
                 </div>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
 
       {renderCustomerModal()}

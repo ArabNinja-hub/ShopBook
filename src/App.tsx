@@ -1,16 +1,28 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AccountSyncModal } from './components/AccountSyncModal';
 import { CreditScreen } from './components/CreditScreen';
+import { HomeScreen } from './components/HomeScreen';
+import { ReportsScreen } from './components/ReportsScreen';
+import { SampleDataModal } from './components/SampleDataModal';
 import { SellScreen } from './components/SellScreen';
 import { ShopSettingsModal } from './components/ShopSettingsModal';
 import { StockScreen } from './components/StockScreen';
-import { TodayScreen } from './components/TodayScreen';
+import {
+  CreditIcon,
+  HomeIcon,
+  ReportsIcon,
+  SellIcon,
+  SettingsIcon,
+  StockIcon,
+  UserIcon,
+} from './components/ui/icons';
 import {
   CustomerCreditSummary,
   Product,
   ShopSettings,
   StockMovement,
 } from './domain/types';
+import { ApiClientError } from './services/apiClient';
 import { fetchCurrentSession } from './services/authClientService';
 import { listCustomersWithBalances } from './services/creditService';
 import { listSalesWithItems } from './services/salesService';
@@ -29,10 +41,24 @@ import {
 } from './services/syncClientService';
 import { AuthSessionResponse } from './shared/syncTypes';
 
-type NavTab = 'sell' | 'stock' | 'credit' | 'today';
+type NavTab = 'home' | 'sell' | 'stock' | 'credit' | 'reports';
+
+interface NavItem {
+  id: NavTab;
+  label: string;
+  icon: React.FC<{ className?: string }>;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'home', label: 'Home', icon: HomeIcon },
+  { id: 'sell', label: 'Sell', icon: SellIcon },
+  { id: 'stock', label: 'Stock', icon: StockIcon },
+  { id: 'credit', label: 'Credit', icon: CreditIcon },
+  { id: 'reports', label: 'Reports', icon: ReportsIcon },
+];
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavTab>('sell');
+  const [activeTab, setActiveTab] = useState<NavTab>('home');
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [customers, setCustomers] = useState<CustomerCreditSummary[]>([]);
@@ -40,6 +66,7 @@ export const App: React.FC = () => {
   const [totalSalesCount, setTotalSalesCount] = useState<number>(0);
 
   const [session, setSession] = useState<AuthSessionResponse | null>(null);
+  const [apiReachable, setApiReachable] = useState<boolean | null>(null);
   const [syncOverview, setSyncOverview] = useState<LocalSyncOverview | null>(
     null
   );
@@ -47,8 +74,9 @@ export const App: React.FC = () => {
 
   const [cartUnitsCount, setCartUnitsCount] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
-  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isSampleDataOpen, setIsSampleDataOpen] = useState(false);
 
   // Navigation intents for jumping straight into Stock actions
   const [openAddProductIntent, setOpenAddProductIntent] = useState(false);
@@ -127,7 +155,7 @@ export const App: React.FC = () => {
       setLoadError(
         err instanceof Error
           ? err.message
-          : 'Failed to open local ShopBook database.'
+          : 'Failed to open the records saved on this phone.'
       );
     } finally {
       setIsInitialLoading(false);
@@ -143,11 +171,17 @@ export const App: React.FC = () => {
       try {
         const currentSess = await fetchCurrentSession();
         if (cancelled) return;
+        setApiReachable(true);
         setSession(currentSess);
         if (currentSess.authenticated && currentSess.shop) {
           await triggerBackgroundSync(currentSess);
         }
-      } catch {
+      } catch (err) {
+        if (cancelled) return;
+        // 404 / 0 means there is no ShopBook API on this host (e.g. a static-only
+        // deployment). Anything else means the API exists but the request failed.
+        const status = err instanceof ApiClientError ? err.statusCode : 0;
+        setApiReachable(!(status === 404 || status === 0));
         // Offline or local-only environment: keep working seamlessly from IndexedDB
       }
     }
@@ -225,43 +259,66 @@ export const App: React.FC = () => {
     }
   };
 
-  const showWelcomeSetup =
-    !isInitialLoading &&
-    allProducts.length === 0 &&
-    totalSalesCount === 0 &&
-    customers.length === 0;
+  const hasAnyRecords =
+    allProducts.length > 0 || totalSalesCount > 0 || customers.length > 0;
+
+  const realProductCount = allProducts.filter((p) => !p.isDemo).length;
+  const realRecordsExist =
+    realProductCount > 0 ||
+    customers.some((c) => !c.customer.isDemo) ||
+    totalSalesCount > 0;
+
+  const showWelcomeSetup = !isInitialLoading && !hasAnyRecords;
 
   const isSignedIn = Boolean(session?.authenticated && session.shop);
   const pendingOutboxCount = syncOverview?.pendingOutboxCount ?? 0;
   const openConflicts = syncOverview?.openStockConflicts ?? [];
 
-  const headerSubtitle = isSignedIn
-    ? isSyncing
-      ? 'ShopBook · Syncing...'
-      : pendingOutboxCount > 0
-        ? `ShopBook · ${pendingOutboxCount} Offline Pending`
-        : 'ShopBook · Cloud Synced'
-    : 'ShopBook · Local Ledger';
+  const statusText = isSyncing
+    ? 'Syncing…'
+    : isSignedIn
+      ? pendingOutboxCount > 0
+        ? `${pendingOutboxCount} waiting to sync`
+        : 'Synced with cloud'
+      : 'Saved on this phone';
 
-  const accountBtnLabel = isSignedIn
-    ? isSyncing
-      ? 'Syncing...'
-      : pendingOutboxCount > 0
-        ? `Sync (${pendingOutboxCount})`
-        : 'Synced'
-    : 'Account';
+  const statusTone = isSyncing
+    ? 'is-busy'
+    : isSignedIn && pendingOutboxCount === 0
+      ? 'is-synced'
+      : 'is-local';
+
+  const navBadge = (tab: NavTab): { count: number; tone: 'info' | 'warn' } | null => {
+    if (tab === 'sell' && cartUnitsCount > 0) {
+      return { count: cartUnitsCount, tone: 'info' };
+    }
+    if (tab === 'stock' && lowStockCount > 0) {
+      return { count: lowStockCount, tone: 'warn' };
+    }
+    if (tab === 'credit' && owingCustomersCount > 0) {
+      return { count: owingCustomersCount, tone: 'warn' };
+    }
+    return null;
+  };
+
+  const desktopTabLabel = (tab: NavTab): string => {
+    if (tab === 'sell' && cartUnitsCount > 0) return `Sell (${cartUnitsCount})`;
+    if (tab === 'stock' && lowStockCount > 0) return `Stock (${lowStockCount} low)`;
+    if (tab === 'credit' && owingCustomersCount > 0) {
+      return `Credit (${owingCustomersCount})`;
+    }
+    return NAV_ITEMS.find((item) => item.id === tab)?.label ?? tab;
+  };
 
   return (
     <div className="sb-app">
-      {/* Top Branded Header */}
+      <a className="sb-skip-link" href="#sb-main-content">
+        Skip to main content
+      </a>
+
       <header className="sb-header">
         <div className="sb-header-inner">
-          <button
-            type="button"
-            className="sb-brand-btn"
-            onClick={() => setIsBackupModalOpen(true)}
-            title="Shop settings & backups"
-          >
+          <div className="sb-brand">
             <span className="sb-brand-icon-frame">
               <img
                 src={`${import.meta.env.BASE_URL}brand/shopbook-icon.png`}
@@ -269,43 +326,25 @@ export const App: React.FC = () => {
               />
             </span>
             <span className="sb-brand-titles">
-              <div className="sb-shop-name">
+              <span className="sb-shop-name">
                 {settings?.shopName ?? 'ShopBook'}
-              </div>
-              <div className="sb-brand-sub">{headerSubtitle}</div>
+              </span>
+              <span className={`sb-status ${statusTone}`}>{statusText}</span>
             </span>
-          </button>
+          </div>
 
-          {/* Desktop / Tablet Primary Tabs */}
           <nav className="sb-desktop-tabs" aria-label="Main sections">
-            <button
-              type="button"
-              className={`sb-desktop-tab ${activeTab === 'sell' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('sell')}
-            >
-              Sell{cartUnitsCount > 0 ? ` (${cartUnitsCount})` : ''}
-            </button>
-            <button
-              type="button"
-              className={`sb-desktop-tab ${activeTab === 'stock' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('stock')}
-            >
-              Stock{lowStockCount > 0 ? ` (${lowStockCount} low)` : ''}
-            </button>
-            <button
-              type="button"
-              className={`sb-desktop-tab ${activeTab === 'credit' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('credit')}
-            >
-              Credit{owingCustomersCount > 0 ? ` (${owingCustomersCount})` : ''}
-            </button>
-            <button
-              type="button"
-              className={`sb-desktop-tab ${activeTab === 'today' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('today')}
-            >
-              Today
-            </button>
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`sb-desktop-tab ${activeTab === item.id ? 'is-active' : ''}`}
+                aria-current={activeTab === item.id ? 'page' : undefined}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {desktopTabLabel(item.id)}
+              </button>
+            ))}
           </nav>
 
           <div className="sb-header-actions">
@@ -318,33 +357,37 @@ export const App: React.FC = () => {
               }}
               aria-label="Account and cloud sync"
             >
-              {accountBtnLabel}
+              <UserIcon className="sb-header-btn-icon" />
+              <span className="sb-header-btn-label">
+                {isSignedIn ? 'Account' : 'Sign in'}
+              </span>
             </button>
             <button
               type="button"
               className="sb-header-btn"
-              onClick={() => setIsBackupModalOpen(true)}
+              onClick={() => setIsSettingsOpen(true)}
+              aria-label="Settings and backups"
             >
-              Backup &amp; Shop
+              <SettingsIcon className="sb-header-btn-icon" />
+              <span className="sb-header-btn-label">Settings</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Clear Demo Mode Notice if Sample Data is Active */}
       {settings?.hasDemoData && (
         <div className="sb-demo-banner">
           <div className="sb-demo-banner-inner">
             <span>
-              Sample <strong>[DEMO]</strong> shop data is loaded for testing —
-              do not mix with real shop records.
+              Sample <strong>[DEMO]</strong> records are loaded for training.
+              They are kept separate from real shop records.
             </span>
             <button
               type="button"
               className="sb-btn sb-btn-sm"
-              onClick={handleRemoveDemo}
+              onClick={() => setIsSampleDataOpen(true)}
             >
-              Remove Demo Data
+              Manage sample data
             </button>
           </div>
         </div>
@@ -355,18 +398,18 @@ export const App: React.FC = () => {
         <div key={conflict.id} className="sb-demo-banner" role="alert">
           <div className="sb-demo-banner-inner">
             <span>
-              <strong>Stock recount needed ({conflict.productName}):</strong>{' '}
-              An offline sale of {conflict.requestedDeductionQty} completed
-              while {conflict.serverQtyBefore} remained on server (sale kept,
-              stock clamped to 0).
+              <strong>Please recount {conflict.productName}:</strong> an offline
+              sale of {conflict.requestedDeductionQty} was recorded while the
+              server showed {conflict.serverQtyBefore} in stock. The sale was
+              kept and stock set to 0.
             </span>
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div className="sb-banner-actions">
               <button
                 type="button"
                 className="sb-btn sb-btn-sm"
                 onClick={() => handleRestockProduct(conflict.productId)}
               >
-                Recount Stock
+                Recount stock
               </button>
               {session?.shop && (
                 <button
@@ -388,31 +431,53 @@ export const App: React.FC = () => {
         </div>
       ))}
 
-      {/* Main Content */}
-      <main className="sb-main">
+      <main className="sb-main" id="sb-main-content">
         {loadError && (
-          <div className="sb-alert sb-alert-error" role="alert">
-            <span>{loadError}</span>
+          <div className="sb-alert sb-alert-error" role="alert" aria-live="assertive">
+            <div className="sb-alert-content">
+              <strong>Could not open your records.</strong> {loadError}
+            </div>
           </div>
         )}
 
         {isInitialLoading ? (
-          <div className="sb-card" style={{ textAlign: 'center', padding: 28 }}>
-            Opening local shop ledger...
+          <div className="sb-card sb-loading-card" role="status" aria-live="polite">
+            <span className="sb-spinner" aria-hidden="true" />
+            Opening the records saved on this phone…
           </div>
         ) : (
           <>
-            {/* Keep SellScreen mounted so an in-progress cart is preserved if owner checks Stock or Credit */}
+            {activeTab === 'home' && (
+              <HomeScreen
+                shopName={settings?.shopName ?? 'My Shop'}
+                products={activeProducts}
+                customers={customers}
+                showWelcomeSetup={showWelcomeSetup}
+                refreshToken={refreshToken}
+                isSignedIn={isSignedIn}
+                pendingOutboxCount={pendingOutboxCount}
+                isSyncing={isSyncing}
+                apiReachable={apiReachable}
+                onSaveShopName={handleSaveShopName}
+                onRecordSale={() => setActiveTab('sell')}
+                onAddProduct={handleGoToAddProduct}
+                onViewCredit={() => setActiveTab('credit')}
+                onRestockProduct={handleRestockProduct}
+                onOpenSettings={() => setIsSettingsOpen(true)}
+                onOpenAccount={() => {
+                  void reloadLocalStores();
+                  setIsAccountModalOpen(true);
+                }}
+                onOpenSampleData={() => setIsSampleDataOpen(true)}
+              />
+            )}
+
+            {/* Keep SellScreen mounted so an in-progress cart is preserved if the owner checks Stock or Credit */}
             <div style={{ display: activeTab === 'sell' ? 'block' : 'none' }}>
               <SellScreen
                 products={activeProducts}
                 customers={customers}
-                showWelcomeSetup={showWelcomeSetup}
-                shopName={settings?.shopName ?? 'My Shop'}
-                onSaveShopName={handleSaveShopName}
                 onGoToAddProduct={handleGoToAddProduct}
-                onLoadDemoData={handleLoadDemo}
-                onOpenBackupModal={() => setIsBackupModalOpen(true)}
                 onDataChanged={reloadAllData}
                 onCartCountChange={setCartUnitsCount}
               />
@@ -439,136 +504,88 @@ export const App: React.FC = () => {
               />
             )}
 
-            {activeTab === 'today' && (
-              <TodayScreen
+            {activeTab === 'reports' && (
+              <ReportsScreen
                 refreshToken={refreshToken}
                 onRestockProduct={handleRestockProduct}
-                onOpenBackupModal={() => setIsBackupModalOpen(true)}
+                onOpenSettings={() => setIsSettingsOpen(true)}
               />
             )}
           </>
         )}
       </main>
 
-      {/* Mobile Bottom Navigation */}
       <nav className="sb-bottom-nav" aria-label="Primary navigation">
         <div className="sb-bottom-nav-inner">
-          <button
-            type="button"
-            className={`sb-nav-tab ${activeTab === 'sell' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('sell')}
-          >
-            {cartUnitsCount > 0 && (
-              <span className="sb-nav-badge">{cartUnitsCount}</span>
-            )}
-            <svg
-              className="sb-nav-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <circle cx="9" cy="20" r="1.5" />
-              <circle cx="17" cy="20" r="1.5" />
-              <path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h9.8a1 1 0 0 0 1-.8L21 7H6" />
-            </svg>
-            <span>Sell</span>
-          </button>
-
-          <button
-            type="button"
-            className={`sb-nav-tab ${activeTab === 'stock' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('stock')}
-          >
-            {lowStockCount > 0 && (
-              <span className="sb-nav-badge is-warn">{lowStockCount}</span>
-            )}
-            <svg
-              className="sb-nav-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M21 8l-9-5-9 5v8l9 5 9-5V8z" />
-              <path d="M3.3 7.8L12 12.5l8.7-4.7M12 22v-9.5" />
-            </svg>
-            <span>Stock</span>
-          </button>
-
-          <button
-            type="button"
-            className={`sb-nav-tab ${activeTab === 'credit' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('credit')}
-          >
-            {owingCustomersCount > 0 && (
-              <span className="sb-nav-badge is-warn">
-                {owingCustomersCount}
-              </span>
-            )}
-            <svg
-              className="sb-nav-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-              <path d="M9 7h6M9 11h6" />
-            </svg>
-            <span>Credit</span>
-          </button>
-
-          <button
-            type="button"
-            className={`sb-nav-tab ${activeTab === 'today' ? 'is-active' : ''}`}
-            onClick={() => setActiveTab('today')}
-          >
-            <svg
-              className="sb-nav-icon"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path d="M3 3v18h18" />
-              <path d="M7 14l4-4 3 3 5-6" />
-            </svg>
-            <span>Today</span>
-          </button>
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const badge = navBadge(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`sb-nav-tab ${activeTab === item.id ? 'is-active' : ''}`}
+                aria-current={activeTab === item.id ? 'page' : undefined}
+                onClick={() => setActiveTab(item.id)}
+              >
+                {badge && (
+                  <span
+                    className={`sb-nav-badge ${badge.tone === 'warn' ? 'is-warn' : ''}`}
+                  >
+                    {badge.count}
+                  </span>
+                )}
+                <Icon className="sb-nav-icon" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
-      {/* Account, Pilot Registration & Multi-Device Sync Modal */}
       <AccountSyncModal
         isOpen={isAccountModalOpen}
         localShopName={settings?.shopName ?? 'My Shop'}
         session={session}
         syncOverview={syncOverview}
         isSyncing={isSyncing}
+        apiReachable={apiReachable}
         onClose={() => setIsAccountModalOpen(false)}
         onSessionChanged={(nextSess) => setSession(nextSess)}
         onTriggerSync={handleExplicitSync}
         onDataChanged={reloadAllData}
       />
 
-      {/* Shop Settings, CSV Exports & JSON Backup Modal */}
       {settings && (
         <ShopSettingsModal
-          isOpen={isBackupModalOpen}
+          isOpen={isSettingsOpen}
           settings={settings}
-          onClose={() => setIsBackupModalOpen(false)}
+          isSignedIn={isSignedIn}
+          pendingOutboxCount={pendingOutboxCount}
+          apiReachable={apiReachable}
+          onClose={() => setIsSettingsOpen(false)}
           onSaveShopName={handleSaveShopName}
-          onLoadDemoData={handleLoadDemo}
-          onRemoveDemoData={handleRemoveDemo}
+          onOpenSampleData={() => {
+            setIsSettingsOpen(false);
+            setIsSampleDataOpen(true);
+          }}
+          onOpenAccount={() => {
+            setIsSettingsOpen(false);
+            setIsAccountModalOpen(true);
+          }}
           onDataChanged={reloadAllData}
         />
       )}
+
+      <SampleDataModal
+        isOpen={isSampleDataOpen}
+        hasDemoData={Boolean(settings?.hasDemoData)}
+        hasRealRecords={realRecordsExist}
+        realProductCount={realProductCount}
+        onClose={() => setIsSampleDataOpen(false)}
+        onLoadSampleData={handleLoadDemo}
+        onRemoveSampleData={handleRemoveDemo}
+      />
     </div>
   );
 };
