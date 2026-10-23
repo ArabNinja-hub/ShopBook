@@ -3,7 +3,14 @@ import 'fake-indexeddb/auto';
 import '@testing-library/jest-dom/vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from '../App';
 import { closeShopDatabase, resetDatabaseForTests } from '../db/indexedDb';
@@ -11,6 +18,11 @@ import { createProduct, listProducts } from '../services/stockService';
 import { createCustomer, getCustomerStatement } from '../services/creditService';
 import { createFullBackupJson } from '../services/exportService';
 import { updateShopName } from '../services/shopService';
+
+// Home is the landing screen, so section buttons are reached through the nav.
+const goToTab = (label: RegExp) => {
+  fireEvent.click(screen.getAllByRole('button', { name: label })[0]);
+};
 
 describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows', () => {
   beforeEach(async () => {
@@ -55,7 +67,7 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
       expect(screen.getByText('Kabwe Market Kiosk')).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole('button', { name: /Backup & Shop/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Settings and backups/i }));
     const modalNameInput = await screen.findByLabelText('Shop Display Name');
     expect(modalNameInput).toHaveValue('Kabwe Market Kiosk');
   });
@@ -71,8 +83,11 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
 
     render(<App />);
 
-    // Add 3 units of Sugar to cart on Sell screen
-    const sellBtn = await screen.findByRole('button', { name: '+ Sell' });
+    // Home is the landing screen: go to Sell before touching the cart
+    goToTab(/^Sell/);
+    const sellBtn = await screen.findByRole('button', {
+      name: 'Sell White Sugar 2kg',
+    });
     fireEvent.click(sellBtn);
     const addMoreBtn = await screen.findByLabelText('Add one more White Sugar 2kg');
     fireEvent.click(addMoreBtn);
@@ -81,12 +96,12 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     expect(screen.getByText(/Sell \(3\)/)).toBeInTheDocument();
 
     // Switch to Stock and set exact count down to 1
-    fireEvent.click(screen.getByRole('button', { name: /^Stock/ }));
-    fireEvent.click(await screen.findByRole('button', { name: 'Adjust Stock' }));
-    fireEvent.click(screen.getByRole('button', { name: '= Set Count' }));
-    const qtyInput = screen.getByLabelText(/Exact Physical Stock Count/i);
+    goToTab(/^Stock/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Update stock' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Set exact count' }));
+    const qtyInput = screen.getByLabelText(/Exact stock count/i);
     fireEvent.change(qtyInput, { target: { value: '1' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save Stock Update' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save stock change' }));
 
     // Cart count automatically clamps from 3 down to 1!
     await waitFor(() => {
@@ -118,7 +133,8 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     const firstRender = render(<App />);
 
     // Add 2 loaves (K45.00) on Sell screen
-    fireEvent.click(await screen.findByRole('button', { name: '+ Sell' }));
+    goToTab(/^Sell/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell Bread Loaf' }));
     fireEvent.click(await screen.findByLabelText('Add one more Bread Loaf'));
 
     // Select Credit Book and pick Chipo Banda in desktop checkout panel
@@ -145,16 +161,23 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     await closeShopDatabase();
 
     render(<App />);
+
+    // App opens on Home after a refresh; the sale total must still be there
+    expect(await screen.findByText('K45.00')).toBeInTheDocument();
+
+    // Sell still shows the reduced stock
+    goToTab(/^Sell/);
     expect(await screen.findByText('Low: 3 left')).toBeInTheDocument();
 
     // Navigate to Credit tab and verify K45.00 balance survived browser refresh
-    fireEvent.click(screen.getAllByRole('button', { name: /Credit/ })[0]);
+    goToTab(/^Credit/);
     expect(await screen.findByText('Owes K45.00')).toBeInTheDocument();
 
-    // Navigate to Today tab and verify Sales Recorded = K45.00, Est. Gross Profit = K8.00
-    fireEvent.click(screen.getAllByRole('button', { name: /^Today$/ })[0]);
+    // Reports: sales count is visible up front, profit lives under "More reports"
+    goToTab(/^Reports/);
     expect(await screen.findByText('1 sale recorded')).toBeInTheDocument();
-    expect(screen.getByText('K8.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /More reports/i }));
+    expect(await screen.findByText('K8.00')).toBeInTheDocument();
   });
 
   it('completes mobile bottom-sheet checkout, blocks repayment overpayment & double-taps, and warns on swapped cost/selling prices', async () => {
@@ -174,9 +197,12 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     render(<App />);
 
     // 1. Mobile Checkout Sheet flow (with Mobile Money manual disclaimer check, then Credit sale)
-    fireEvent.click(await screen.findByRole('button', { name: '+ Sell' }));
+    goToTab(/^Sell/);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Sell Cooking Oil 750ml' })
+    );
     const mobileCheckoutBtn = screen.getByRole('button', {
-      name: /Checkout & Confirm/i,
+      name: /Review & confirm/i,
     });
     fireEvent.click(mobileCheckoutBtn);
 
@@ -200,12 +226,12 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     expect((await listProducts()).find((p) => p.id === oil.id)?.stockQty).toBe(2);
 
     // 2. Credit Screen: Over-repayment rejected, valid repayment double-click protected
-    fireEvent.click(screen.getAllByRole('button', { name: /Credit/ })[0]);
-    fireEvent.click(await screen.findByRole('button', { name: 'Record Payment' }));
+    goToTab(/^Credit/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Record payment' }));
 
     const repayInput = screen.getByLabelText(/Amount Received \(Kwacha\)/i);
     fireEvent.change(repayInput, { target: { value: '50.00' } }); // > K35.00 owing
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm Repayment' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm payment' }));
     expect(
       await screen.findByText(/higher than Mwape Tembo's owing balance/i)
     ).toBeInTheDocument();
@@ -213,7 +239,7 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     // Now enter valid K15.00 and double-click Confirm Repayment
     fireEvent.change(repayInput, { target: { value: '15.00' } });
     const confirmRepayBtn = screen.getByRole('button', {
-      name: 'Confirm Repayment',
+      name: 'Confirm payment',
     });
     fireEvent.click(confirmRepayBtn);
     fireEvent.click(confirmRepayBtn);
@@ -223,11 +249,13 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     expect(stmt.summary.outstandingBalanceNgwee).toBe(2000); // K35 - K15 = K20 (deducted once!)
 
     // 3. Stock Screen: Warns when Cost Price > Selling Price (accidental swap)
-    fireEvent.click(screen.getAllByRole('button', { name: /^Stock/ })[0]);
-    fireEvent.click(await screen.findByRole('button', { name: '+ Add Product' }));
+    goToTab(/^Stock/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add product' }));
     fireEvent.change(screen.getByLabelText(/Selling Price/i), {
       target: { value: '20.00' },
     });
+    // Cost price lives under the optional "More details" section
+    fireEvent.click(screen.getByRole('button', { name: /More details/i }));
     fireEvent.change(screen.getByLabelText(/Cost Price/i), {
       target: { value: '25.00' },
     });
@@ -237,35 +265,38 @@ describe('ShopBook UI, Logo Assets, Cart Reconciliation & Browser Refresh Flows'
     fireEvent.click(screen.getByLabelText('Close modal'));
 
     // 4. Backup Restore in ShopSettingsModal updates modal shop name immediately without stale state
-    fireEvent.click(screen.getByRole('button', { name: /Backup & Shop/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Settings and backups/i }));
     expect(await screen.findByLabelText('Shop Display Name')).toHaveValue(
       'Working Shop'
     );
 
-    const origConfirm = window.confirm;
-    window.confirm = () => true;
-    try {
-      const fileInput = document.querySelector(
-        'input[type="file"]'
-      ) as HTMLInputElement;
-      const backupFile = new File([backupSourceJson], 'backup.json', {
-        type: 'application/json',
+    const fileInput = document.querySelector(
+      'input[type="file"]'
+    ) as HTMLInputElement;
+    const backupFile = new File([backupSourceJson], 'backup.json', {
+      type: 'application/json',
+    });
+    // Polyfill Blob.prototype.text if needed in older jsdom versions
+    if (typeof backupFile.text !== 'function') {
+      Object.defineProperty(backupFile, 'text', {
+        value: async () => backupSourceJson,
       });
-      // Polyfill Blob.prototype.text if needed in older jsdom versions
-      if (typeof backupFile.text !== 'function') {
-        Object.defineProperty(backupFile, 'text', {
-          value: async () => backupSourceJson,
-        });
-      }
-      fireEvent.change(fileInput, { target: { files: [backupFile] } });
-
-      await waitFor(() => {
-        expect(screen.getByLabelText('Shop Display Name')).toHaveValue(
-          'Backup Source Shop'
-        );
-      });
-    } finally {
-      window.confirm = origConfirm;
     }
+    fireEvent.change(fileInput, { target: { files: [backupFile] } });
+
+    // Restoring replaces records, so an explicit in-app confirmation is required
+    const restoreDialog = await screen.findByRole('dialog', {
+      name: /Replace the records on this phone/i,
+    });
+    expect(restoreDialog).toHaveTextContent(/cannot be undone/i);
+    fireEvent.click(
+      within(restoreDialog).getByRole('button', { name: 'Restore backup' })
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Shop Display Name')).toHaveValue(
+        'Backup Source Shop'
+      );
+    });
   });
 });

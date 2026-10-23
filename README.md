@@ -11,7 +11,7 @@
 1. **Sell** — Search products, build a cart in minimal taps, and confirm **Cash**, **Mobile Money** *(manual record only — does not process electronic payments)*, or **Credit Book** sales with automatic stock deduction and double-tap protection.
 2. **Stock** — Add, edit, archive/restore, and adjust product stock quantities with configurable low-stock alerts (default: `5` units), stock movement history, and multi-device stock conflict recount notices.
 3. **Credit** — Track customers who buy on credit, view transaction-computed balances and running statements, and record Cash or Mobile Money debt repayments safely.
-4. **Today** — Review daily and historical business metrics without double-counting credit sales or debt repayments, see low-stock warnings and best-selling items, and export CSV/JSON backups.
+4. **Home & Reports** — Home opens with today's sales, money owed, up to five low-stock items and three actions (Record a sale, Add a product, View credit). **Reports** keeps the full detail — day totals, money breakdown, profit estimate, best sellers, receipt history and a day-by-day table — with the dense figures behind *More reports* so the main screen stays calm.
 5. **Account & Cloud Sync (Milestone 2)** — Register a **Free Pilot Account** using a normalized Zambian mobile number (`097...`, `096...`, `095...`, `077...`, `+260...`) or email address + password, recover accounts safely via Emergency Recovery Keys (`SBRK-...`) or single-use Pilot Reset Codes (`SBRST-...`) without paid SMS, and synchronize sales, stock, and credit ledgers safely across devices.
 
 ---
@@ -53,7 +53,37 @@ npm run admin:issue-reset -- --identifier 0977123456
 
 # Create an optimized production build in .\dist
 npm run build
+
+# Verify the built HTML is safe for the configured public path
+npm run verify:dist
+
+# Build for the GitHub Pages project site (served from /ShopBook/)
+npm run build:pages
 ```
+
+---
+
+## Deploying the frontend to GitHub Pages (optional, static only)
+
+`.github/workflows/deploy-pages.yml` builds the app and publishes `dist/` to
+<https://arabninja-hub.github.io/ShopBook/> on every push to `main`.
+
+- **The public path matters.** A GitHub Pages *project* site is served from
+  `/ShopBook/`, not `/`. The build therefore sets `VITE_BASE_PATH=/ShopBook/`;
+  Vite's `base` is otherwise `/`, which is what Render needs when it serves
+  `dist/` from the domain root. Never hardcode `/ShopBook/` in `vite.config.ts`.
+- **The guard is not optional.** `npm run verify:dist` fails the build if the
+  emitted `index.html` still references root-absolute assets such as
+  `/assets/index-abc.js`. Those resolve outside `/ShopBook/` and cause the blank
+  white page this project previously shipped.
+- **Pages serves static files only.** The Fastify API and PostgreSQL in
+  `server/` are *not* deployed there. Without that API the app runs offline
+  against the phone's IndexedDB ledger, shows "Saved on this phone", and offers
+  backup/restore instead of cloud sign-in. Host the API separately (see
+  `docs/DEPLOYMENT_AND_BACKUPS.md`) if cloud sync is required.
+- **Repository setting:** Pages must use **Settings → Pages → Source: GitHub
+  Actions**. Publishing a raw branch is what produced the original white screen,
+  because a branch checkout has no built `assets/` and no `/src/main.tsx` bundle.
 
 ---
 

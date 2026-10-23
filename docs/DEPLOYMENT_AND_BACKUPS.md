@@ -24,6 +24,22 @@
 
 Because ShopBook uses standard Node.js 20/22+, `pg`, and standard SQL migrations (`npm run db:migrate`), the exact same repository runs unmodified on **Railway** (`$5/mo` Hobby minimum credit covering light pilot compute + CoW daily/weekly volume backups, ~`$5.00–$8.00/mo` / `~K101–K161/mo`, <https://docs.railway.com/pricing/plans>) or any managed PostgreSQL 16+ host.
 
+### Static frontend on GitHub Pages (no server)
+
+`https://arabninja-hub.github.io/ShopBook/` hosts **only the built frontend**. It
+is useful for demonstrating the interface, and for shop owners who record sales
+directly on one phone, but it has no API and no database:
+
+| On GitHub Pages | Works | Does not work |
+|---|---|---|
+| Record sales, stock, credit, repayments | Yes (IndexedDB) | — |
+| JSON / CSV backup and restore | Yes | — |
+| Cloud sync across devices | — | Needs the API + PostgreSQL |
+
+The workflow builds with `VITE_BASE_PATH=/ShopBook/` and runs
+`npm run verify:dist`, which fails the build if any asset path would escape the
+`/ShopBook/` subpath. `SERVE_STATIC_DIST=true` on Render still uses `base: "/"`.
+
 ---
 
 ## 2. Zero-Cost Local Development (Windows PowerShell)

@@ -14,6 +14,8 @@ import {
   createFullBackupJson,
   downloadTextFile,
 } from '../services/exportService';
+import { Banner } from './ui/Banner';
+import { Modal } from './ui/Modal';
 import {
   bindLocalLedgerToShop,
   LocalSyncOverview,
@@ -29,6 +31,8 @@ interface AccountSyncModalProps {
   session: AuthSessionResponse | null;
   syncOverview: LocalSyncOverview | null;
   isSyncing: boolean;
+  /** null = still checking, false = no ShopBook API on this host. */
+  apiReachable: boolean | null;
   onClose: () => void;
   onSessionChanged: (next: AuthSessionResponse) => void;
   onTriggerSync: () => Promise<void>;
@@ -43,6 +47,7 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
   session,
   syncOverview,
   isSyncing,
+  apiReachable,
   onClose,
   onSessionChanged,
   onTriggerSync,
@@ -434,23 +439,21 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
   };
 
   return (
-    <div
-      className="sb-modal-backdrop"
-      onClick={() => !isBusy && onClose()}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Account & Cloud Sync"
+      closeLabel="Close account and sync modal"
+      dismissible={!isBusy}
     >
-      <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="sb-modal-header">
-          <h2 className="sb-modal-title">Account &amp; Cloud Sync</h2>
-          <button
-            type="button"
-            className="sb-close-btn"
-            disabled={isBusy}
-            onClick={onClose}
-            aria-label="Close account and sync modal"
-          >
-            ×
-          </button>
-        </div>
+        {apiReachable === false && (
+          <Banner tone="info">
+            <strong>Cloud sync is unavailable in this copy of ShopBook.</strong>{' '}
+            The ShopBook server cannot be reached, so accounts cannot sign in
+            here. Everything you record is still saved on this phone — open
+            Settings to download a backup.
+          </Banner>
+        )}
 
         {/* One-time Emergency Recovery Key Display */}
         {newlyIssuedRecoveryKey && (
@@ -1211,7 +1214,6 @@ export const AccountSyncModal: React.FC<AccountSyncModalProps> = ({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -16,6 +16,8 @@ import {
   StockAdjustmentMode,
   updateProduct,
 } from '../services/stockService';
+import { Banner } from './ui/Banner';
+import { Modal } from './ui/Modal';
 
 interface StockScreenProps {
   allProducts: Product[];
@@ -52,6 +54,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
   const [thresholdInput, setThresholdInput] = useState(
     String(DEFAULT_LOW_STOCK_THRESHOLD)
   );
+  const [showProductDetails, setShowProductDetails] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
 
   // Stock Adjustment modal state
@@ -74,6 +77,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
     setCostPriceInput('');
     setInitialQtyInput('0');
     setThresholdInput(String(DEFAULT_LOW_STOCK_THRESHOLD));
+    setShowProductDetails(false);
     setErrorMessage(null);
     setIsProductModalOpen(true);
   };
@@ -89,6 +93,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
         : ''
     );
     setThresholdInput(String(product.lowStockThreshold));
+    setShowProductDetails(false);
     setErrorMessage(null);
     setIsProductModalOpen(true);
   };
@@ -195,9 +200,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
           initialStockQty,
           lowStockThreshold,
         });
-        setStatusMessage(
-          `Added "${created.name}" (${created.stockQty} in stock).`
-        );
+        setStatusMessage(`Added "${created.name}" (${created.stockQty} in stock).`);
       }
 
       setIsProductModalOpen(false);
@@ -290,38 +293,32 @@ export const StockScreen: React.FC<StockScreenProps> = ({
 
   return (
     <div>
+      <header className="sb-page-head">
+        <h1 className="sb-page-title">Stock</h1>
+        <p className="sb-page-subtitle">
+          What you sell, the price and how many you have left.
+        </p>
+      </header>
+
       {statusMessage && (
-        <div className="sb-alert sb-alert-success" role="status">
-          <span>{statusMessage}</span>
-          <button
-            type="button"
-            className="sb-btn sb-btn-sm"
-            onClick={() => setStatusMessage(null)}
-          >
-            Dismiss
-          </button>
-        </div>
+        <Banner tone="success" onDismiss={() => setStatusMessage(null)}>
+          {statusMessage}
+        </Banner>
       )}
 
       {errorMessage && !isProductModalOpen && !adjustTarget && (
-        <div className="sb-alert sb-alert-error" role="alert">
-          <span>{errorMessage}</span>
-          <button
-            type="button"
-            className="sb-btn sb-btn-sm"
-            onClick={() => setErrorMessage(null)}
-          >
-            Close
-          </button>
-        </div>
+        <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+          {errorMessage}
+        </Banner>
       )}
 
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+      <div className="sb-toolbar">
         <div className="sb-search-wrap">
           <input
             type="search"
             className="sb-input"
-            placeholder="Search stock items..."
+            placeholder="Search stock…"
+            aria-label="Search stock items"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -336,47 +333,48 @@ export const StockScreen: React.FC<StockScreenProps> = ({
             </button>
           )}
         </div>
-        <button
-          type="button"
-          className="sb-btn sb-btn-primary"
-          onClick={openAddModal}
-        >
-          + Add Product
+        <button type="button" className="sb-btn sb-btn-primary" onClick={openAddModal}>
+          Add product
         </button>
       </div>
 
-      <div className="sb-pills">
+      <div className="sb-pills" role="group" aria-label="Stock filters">
         <button
           type="button"
           className={`sb-pill ${filter === 'active' ? 'is-active' : ''}`}
+          aria-pressed={filter === 'active'}
           onClick={() => setFilter('active')}
         >
-          Active ({counts.active})
+          All ({counts.active})
         </button>
         <button
           type="button"
           className={`sb-pill ${filter === 'low' ? 'is-active' : ''}`}
+          aria-pressed={filter === 'low'}
           onClick={() => setFilter('low')}
         >
-          Low Stock ({counts.low})
+          Running low ({counts.low})
         </button>
         <button
           type="button"
           className={`sb-pill ${filter === 'archived' ? 'is-active' : ''}`}
+          aria-pressed={filter === 'archived'}
           onClick={() => setFilter('archived')}
         >
-          Archived ({counts.archived})
+          Hidden ({counts.archived})
         </button>
       </div>
 
       {filteredProducts.length === 0 ? (
-        <div className="sb-card" style={{ textAlign: 'center', padding: 22 }}>
-          <p style={{ margin: '0 0 12px', color: 'var(--sb-text-muted)' }}>
+        <div className="sb-card sb-empty-state">
+          <p className="sb-empty-text">
             {filter === 'low'
-              ? 'Good news — no active products are low on stock.'
+              ? 'Good news — no products are running low.'
               : filter === 'archived'
-                ? 'No archived products.'
-                : 'No products found. Add your shop products to start tracking stock.'}
+                ? 'Nothing has been hidden from selling.'
+                : search
+                  ? `No product matches “${search}”.`
+                  : 'No products yet. Add what you sell to start tracking stock.'}
           </p>
           {filter === 'active' && !search && (
             <button
@@ -384,12 +382,12 @@ export const StockScreen: React.FC<StockScreenProps> = ({
               className="sb-btn sb-btn-primary"
               onClick={openAddModal}
             >
-              + Add First Product
+              Add product
             </button>
           )}
         </div>
       ) : (
-        <div className="sb-product-list" style={{ marginBottom: 14 }}>
+        <ul className="sb-product-list">
           {filteredProducts.map((product) => {
             const isOut = product.stockQty === 0;
             const isLow =
@@ -398,42 +396,25 @@ export const StockScreen: React.FC<StockScreenProps> = ({
               product.stockQty <= product.lowStockThreshold;
 
             return (
-              <div key={product.id} className="sb-product-row" style={{ flexWrap: 'wrap' }}>
-                <div className="sb-product-info" style={{ minWidth: 200 }}>
+              <li key={product.id} className="sb-product-row is-stock-row">
+                <div className="sb-product-info">
                   <div className="sb-product-name">
                     {product.name}
                     {product.unitLabel ? (
-                      <span
-                        style={{
-                          fontWeight: 500,
-                          color: 'var(--sb-text-muted)',
-                          fontSize: '0.84rem',
-                          marginLeft: 6,
-                        }}
-                      >
-                        ({product.unitLabel})
-                      </span>
+                      <span className="sb-product-unit">({product.unitLabel})</span>
                     ) : null}
                   </div>
                   <div className="sb-product-meta">
                     <span className="sb-price-tag">
-                      Sell: {formatNgwee(product.sellingPriceNgwee)}
-                    </span>
-                    <span>
-                      {product.costPriceNgwee !== null
-                        ? `Cost: ${formatNgwee(product.costPriceNgwee)}`
-                        : 'Cost: not set'}
+                      {formatNgwee(product.sellingPriceNgwee)}
                     </span>
                     {product.isArchived ? (
-                      <span className="sb-badge">Archived</span>
+                      <span className="sb-badge">Hidden</span>
                     ) : isOut ? (
-                      <span className="sb-badge sb-badge-out">
-                        0 in stock (Out)
-                      </span>
+                      <span className="sb-badge sb-badge-out">Out of stock</span>
                     ) : isLow ? (
                       <span className="sb-badge sb-badge-low">
-                        Low: {product.stockQty} left (alert ≤{' '}
-                        {product.lowStockThreshold})
+                        Low: {product.stockQty} left
                       </span>
                     ) : (
                       <span className="sb-badge sb-badge-ok">
@@ -443,14 +424,14 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div className="sb-row-actions">
                   {!product.isArchived && (
                     <button
                       type="button"
                       className="sb-btn sb-btn-primary sb-btn-sm"
                       onClick={() => openAdjustModal(product, 'add')}
                     >
-                      Adjust Stock
+                      Update stock
                     </button>
                   )}
                   <button
@@ -461,341 +442,297 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                     Edit
                   </button>
                 </div>
-              </div>
+              </li>
             );
           })}
-        </div>
+        </ul>
       )}
 
-      {/* Collapsible Stock Movement Audit Trail */}
-      <div className="sb-card">
-        <div className="sb-row-between">
+      <section className="sb-card sb-history-card">
+        <div className="sb-card-header">
           <div>
-            <h2 className="sb-card-title">Recent Stock Movements</h2>
+            <h2 className="sb-card-title">Stock history</h2>
             <p className="sb-card-subtitle">
-              Audit trail of restocks, sales deductions, and recounts
+              Every restock, sale and recount, newest first.
             </p>
           </div>
           <button
             type="button"
             className="sb-btn sb-btn-sm"
-            onClick={() => setShowMovements((v) => !v)}
+            aria-expanded={showMovements}
+            onClick={() => setShowMovements((value) => !value)}
           >
-            {showMovements ? 'Hide Log' : `Show Log (${recentMovements.length})`}
+            {showMovements ? 'Hide' : `Show (${recentMovements.length})`}
           </button>
         </div>
 
-        {showMovements && (
-          <div style={{ marginTop: 12 }}>
-            {recentMovements.length === 0 ? (
-              <p style={{ margin: 0, color: 'var(--sb-text-muted)', fontSize: '0.88rem' }}>
-                No stock movements recorded yet.
-              </p>
-            ) : (
-              <div className="sb-list-divider">
-                {recentMovements.slice(0, 25).map((m) => (
-                  <div key={m.id} className="sb-row-between">
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-                        {m.productNameSnapshot}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--sb-text-muted)' }}>
-                        {formatDateTimeReadable(m.createdAt)} · {m.reason}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div
-                        style={{
-                          fontWeight: 800,
-                          color:
-                            m.deltaQty > 0
-                              ? 'var(--sb-green-700)'
-                              : m.deltaQty < 0
-                                ? 'var(--sb-red-text)'
-                                : 'var(--sb-text)',
-                        }}
-                      >
-                        {m.deltaQty > 0 ? `+${m.deltaQty}` : m.deltaQty}
-                      </div>
-                      <div style={{ fontSize: '0.76rem', color: 'var(--sb-text-muted)' }}>
-                        {m.previousQty} → {m.newQty}
-                      </div>
-                    </div>
+        {showMovements &&
+          (recentMovements.length === 0 ? (
+            <p className="sb-empty-text">Nothing here yet.</p>
+          ) : (
+            <ul className="sb-list-divider">
+              {recentMovements.slice(0, 25).map((movement) => (
+                <li key={movement.id} className="sb-history-row">
+                  <div className="sb-history-text">
+                    <span className="sb-history-name">
+                      {movement.productNameSnapshot}
+                    </span>
+                    <span className="sb-history-meta">
+                      {formatDateTimeReadable(movement.createdAt)} ·{' '}
+                      {movement.reason}
+                    </span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+                  <div className="sb-history-change">
+                    <span
+                      className={
+                        movement.deltaQty > 0
+                          ? 'sb-history-delta is-up'
+                          : 'sb-history-delta is-down'
+                      }
+                    >
+                      {movement.deltaQty > 0
+                        ? `+${movement.deltaQty}`
+                        : movement.deltaQty}
+                    </span>
+                    <span className="sb-history-meta">
+                      {movement.previousQty} → {movement.newQty}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ))}
+      </section>
 
-      {/* Add / Edit Product Modal */}
-      {isProductModalOpen && (
-        <div
-          className="sb-modal-backdrop"
-          onClick={() => !isSavingProduct && setIsProductModalOpen(false)}
-        >
-          <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="sb-modal-header">
-              <h2 className="sb-modal-title">
-                {editingProduct ? 'Edit Product' : 'Add New Product'}
-              </h2>
-              <button
-                type="button"
-                className="sb-close-btn"
-                disabled={isSavingProduct}
-                onClick={() => setIsProductModalOpen(false)}
-                aria-label="Close modal"
-              >
-                ×
-              </button>
+      <Modal
+        isOpen={isProductModalOpen}
+        onClose={() => setIsProductModalOpen(false)}
+        title={editingProduct ? 'Edit product' : 'Add product'}
+        closeLabel="Close modal"
+        dismissible={!isSavingProduct}
+      >
+        {errorMessage && (
+          <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+            {errorMessage}
+          </Banner>
+        )}
+
+        <form onSubmit={handleSaveProduct}>
+          <div className="sb-field">
+            <label className="sb-label" htmlFor="prod-name">
+              Product name
+            </label>
+            <input
+              id="prod-name"
+              type="text"
+              className="sb-input"
+              placeholder="e.g. Cooking Oil 2L"
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="sb-grid-2">
+            <div className="sb-field">
+              <label className="sb-label" htmlFor="prod-sell">
+                Selling Price (Kwacha)
+              </label>
+              <input
+                id="prod-sell"
+                type="text"
+                inputMode="decimal"
+                className="sb-input"
+                placeholder="e.g. 12.50"
+                value={sellingPriceInput}
+                onChange={(e) => setSellingPriceInput(e.target.value)}
+                required
+              />
             </div>
 
-            {errorMessage && (
-              <div className="sb-alert sb-alert-error" role="alert">
-                <span>{errorMessage}</span>
-              </div>
-            )}
+            <div className="sb-field">
+              <label className="sb-label" htmlFor="prod-unit">
+                Pack or unit (optional)
+              </label>
+              <input
+                id="prod-unit"
+                type="text"
+                className="sb-input"
+                placeholder="e.g. 2L bottle"
+                value={unitInput}
+                onChange={(e) => setUnitInput(e.target.value)}
+              />
+            </div>
+          </div>
 
-            <form onSubmit={handleSaveProduct}>
+          {!editingProduct && (
+            <div className="sb-field">
+              <label className="sb-label" htmlFor="prod-qty">
+                How many do you have now?
+              </label>
+              <input
+                id="prod-qty"
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                className="sb-input"
+                value={initialQtyInput}
+                onChange={(e) => setInitialQtyInput(e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          <button
+            type="button"
+            className="sb-disclosure sb-disclosure-compact"
+            aria-expanded={showProductDetails}
+            onClick={() => setShowProductDetails((value) => !value)}
+          >
+            <span>More details</span>
+            <span aria-hidden="true">{showProductDetails ? '−' : '+'}</span>
+          </button>
+
+          {showProductDetails && (
+            <div className="sb-settings-more">
               <div className="sb-field">
-                <label className="sb-label" htmlFor="prod-name">
-                  Product Name *
+                <label className="sb-label" htmlFor="prod-cost">
+                  Cost Price (Kwacha, optional)
                 </label>
                 <input
-                  id="prod-name"
+                  id="prod-cost"
                   type="text"
+                  inputMode="decimal"
                   className="sb-input"
-                  placeholder="e.g. Cooking Oil 2L"
-                  value={nameInput}
-                  onChange={(e) => setNameInput(e.target.value)}
+                  placeholder="e.g. 9.50"
+                  value={costPriceInput}
+                  onChange={(e) => setCostPriceInput(e.target.value)}
+                />
+                <p className="sb-hint">
+                  What you paid for it. Used only to estimate profit.
+                </p>
+              </div>
+
+              <div className="sb-field">
+                <label className="sb-label" htmlFor="prod-threshold">
+                  Warn me when stock reaches
+                </label>
+                <input
+                  id="prod-threshold"
+                  type="number"
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  className="sb-input"
+                  value={thresholdInput}
+                  onChange={(e) => setThresholdInput(e.target.value)}
                   required
                 />
               </div>
-
-              <div className="sb-field">
-                <label className="sb-label" htmlFor="prod-unit">
-                  Unit or Pack Size (optional)
-                </label>
-                <input
-                  id="prod-unit"
-                  type="text"
-                  className="sb-input"
-                  placeholder="e.g. 2L bottle, 2kg bag, loaf, bar"
-                  value={unitInput}
-                  onChange={(e) => setUnitInput(e.target.value)}
-                />
-              </div>
-
-              <div className="sb-grid-2">
-                <div className="sb-field">
-                  <label className="sb-label" htmlFor="prod-sell">
-                    Selling Price (Kwacha) *
-                  </label>
-                  <input
-                    id="prod-sell"
-                    type="text"
-                    inputMode="decimal"
-                    className="sb-input"
-                    placeholder="e.g. 12.50"
-                    value={sellingPriceInput}
-                    onChange={(e) => setSellingPriceInput(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="sb-field">
-                  <label className="sb-label" htmlFor="prod-cost">
-                    Cost Price (Kwacha, optional)
-                  </label>
-                  <input
-                    id="prod-cost"
-                    type="text"
-                    inputMode="decimal"
-                    className="sb-input"
-                    placeholder="e.g. 9.50"
-                    value={costPriceInput}
-                    onChange={(e) => setCostPriceInput(e.target.value)}
-                  />
-                </div>
-              </div>
-              <span className="sb-hint" style={{ marginTop: -6, marginBottom: 12 }}>
-                Recording cost price lets ShopBook estimate gross profit on sales.
-              </span>
-
-              {isCostAboveSellingWarning && (
-                <div className="sb-alert sb-alert-warn" style={{ marginBottom: 12 }}>
-                  <span>
-                    <strong>Check prices:</strong> Cost price is higher than
-                    selling price. Make sure the two prices were not swapped
-                    unless selling below cost intentionally.
-                  </span>
-                </div>
-              )}
-
-              <div className="sb-grid-2">
-                {!editingProduct && (
-                  <div className="sb-field">
-                    <label className="sb-label" htmlFor="prod-qty">
-                      Opening Quantity in Stock *
-                    </label>
-                    <input
-                      id="prod-qty"
-                      type="number"
-                      min={0}
-                      step={1}
-                      inputMode="numeric"
-                      className="sb-input"
-                      value={initialQtyInput}
-                      onChange={(e) => setInitialQtyInput(e.target.value)}
-                      required
-                    />
-                  </div>
-                )}
-
-                <div className="sb-field">
-                  <label className="sb-label" htmlFor="prod-threshold">
-                    Low-Stock Warning At
-                  </label>
-                  <input
-                    id="prod-threshold"
-                    type="number"
-                    min={0}
-                    step={1}
-                    inputMode="numeric"
-                    className="sb-input"
-                    value={thresholdInput}
-                    onChange={(e) => setThresholdInput(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="sb-btn"
-                  disabled={isSavingProduct}
-                  onClick={() => setIsProductModalOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="sb-btn sb-btn-primary sb-btn-block"
-                  disabled={isSavingProduct}
-                >
-                  {isSavingProduct
-                    ? 'Saving...'
-                    : editingProduct
-                      ? 'Save Changes'
-                      : 'Add Product'}
-                </button>
-              </div>
-            </form>
-
-            {editingProduct && (
-              <div
-                style={{
-                  marginTop: 16,
-                  paddingTop: 12,
-                  borderTop: '1px solid var(--sb-border)',
-                }}
-              >
-                <div className="sb-row-between">
-                  <span style={{ fontSize: '0.82rem', color: 'var(--sb-text-muted)' }}>
-                    {editingProduct.isArchived
-                      ? 'Restore this item to show it on the Sell screen again.'
-                      : 'Archive hides this item from selling while keeping past sales intact.'}
-                  </span>
-                  <button
-                    type="button"
-                    className={`sb-btn sb-btn-sm ${editingProduct.isArchived ? '' : 'sb-btn-danger'}`}
-                    onClick={() => handleToggleArchive(editingProduct)}
-                  >
-                    {editingProduct.isArchived ? 'Restore Product' : 'Archive'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Stock Adjustment Modal */}
-      {adjustTarget && (
-        <div
-          className="sb-modal-backdrop"
-          onClick={() => !isSavingAdjustment && setAdjustTarget(null)}
-        >
-          <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="sb-modal-header">
-              <h2 className="sb-modal-title">
-                Adjust Stock — {adjustTarget.name}
-              </h2>
-              <button
-                type="button"
-                className="sb-close-btn"
-                disabled={isSavingAdjustment}
-                onClick={() => setAdjustTarget(null)}
-                aria-label="Close modal"
-              >
-                ×
-              </button>
             </div>
+          )}
 
-            {errorMessage && (
-              <div className="sb-alert sb-alert-error" role="alert">
-                <span>{errorMessage}</span>
-              </div>
-            )}
+          {isCostAboveSellingWarning && (
+            <Banner tone="warning">
+              <strong>Check the prices:</strong> Cost price is higher than
+              selling price. Make sure the two prices were not swapped.
+            </Banner>
+          )}
 
-            <div
-              style={{
-                padding: '10px 12px',
-                borderRadius: 'var(--sb-radius-sm)',
-                backgroundColor: 'var(--sb-surface-subtle)',
-                border: '1px solid var(--sb-border)',
-                marginBottom: 12,
-                fontSize: '0.9rem',
-              }}
+          <div className="sb-dialog-actions">
+            <button
+              type="button"
+              className="sb-btn"
+              disabled={isSavingProduct}
+              onClick={() => setIsProductModalOpen(false)}
             >
-              Current Stock: <strong>{adjustTarget.stockQty}</strong>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="sb-btn sb-btn-primary sb-btn-block"
+              disabled={isSavingProduct}
+            >
+              {isSavingProduct
+                ? 'Saving…'
+                : editingProduct
+                  ? 'Save changes'
+                  : 'Add product'}
+            </button>
+          </div>
+        </form>
+
+        {editingProduct && (
+          <div className="sb-archive-block">
+            <p className="sb-hint">
+              {editingProduct.isArchived
+                ? 'Restore this product to sell it again.'
+                : 'Hide this product from selling. Past sales are kept.'}
+            </p>
+            <button
+              type="button"
+              className={`sb-btn sb-btn-sm ${editingProduct.isArchived ? '' : 'sb-btn-danger'}`}
+              onClick={() => handleToggleArchive(editingProduct)}
+            >
+              {editingProduct.isArchived ? 'Restore Product' : 'Archive'}
+            </button>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        isOpen={adjustTarget !== null}
+        onClose={() => setAdjustTarget(null)}
+        title={`Update stock${adjustTarget ? ` — ${adjustTarget.name}` : ''}`}
+        closeLabel="Close modal"
+        dismissible={!isSavingAdjustment}
+      >
+        {errorMessage && (
+          <Banner tone="error" onDismiss={() => setErrorMessage(null)}>
+            {errorMessage}
+          </Banner>
+        )}
+
+        {adjustTarget && (
+          <>
+            <div className="sb-stock-preview">
+              <span>
+                Now: <strong>{adjustTarget.stockQty}</strong>
+              </span>
               {previewAdjustedStock !== null && (
-                <>
-                  {' '}
-                  → New Stock:{' '}
+                <span>
+                  After:{' '}
                   <strong
-                    style={{
-                      color:
-                        previewAdjustedStock < 0
-                          ? 'var(--sb-red-text)'
-                          : 'var(--sb-green-700)',
-                    }}
+                    className={
+                      previewAdjustedStock < 0 ? 'is-negative' : 'is-positive'
+                    }
                   >
                     {previewAdjustedStock}
                   </strong>
-                </>
+                </span>
               )}
             </div>
 
             <form onSubmit={handleSaveStockAdjustment}>
-              <div className="sb-field">
-                <span className="sb-label">Adjustment Type</span>
-                <div className="sb-pay-grid">
+              <fieldset className="sb-fieldset">
+                <legend className="sb-label">What happened?</legend>
+                <div className="sb-segment">
                   <button
                     type="button"
-                    className={`sb-pay-option ${adjustMode === 'add' ? 'is-selected' : ''}`}
+                    className={`sb-segment-btn ${adjustMode === 'add' ? 'is-selected' : ''}`}
+                    aria-pressed={adjustMode === 'add'}
                     onClick={() => {
                       setAdjustMode('add');
                       setAdjustQtyInput('');
                     }}
                   >
-                    + Add Stock
+                    + Add stock
                   </button>
                   <button
                     type="button"
-                    className={`sb-pay-option ${adjustMode === 'subtract' ? 'is-selected' : ''}`}
+                    className={`sb-segment-btn ${adjustMode === 'subtract' ? 'is-selected' : ''}`}
+                    aria-pressed={adjustMode === 'subtract'}
                     onClick={() => {
                       setAdjustMode('subtract');
                       setAdjustQtyInput('');
@@ -805,24 +742,25 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                   </button>
                   <button
                     type="button"
-                    className={`sb-pay-option ${adjustMode === 'set' ? 'is-selected' : ''}`}
+                    className={`sb-segment-btn ${adjustMode === 'set' ? 'is-selected' : ''}`}
+                    aria-pressed={adjustMode === 'set'}
                     onClick={() => {
                       setAdjustMode('set');
                       setAdjustQtyInput(String(adjustTarget.stockQty));
                     }}
                   >
-                    = Set Count
+                    Set exact count
                   </button>
                 </div>
-              </div>
+              </fieldset>
 
               <div className="sb-field">
                 <label className="sb-label" htmlFor="adj-qty">
                   {adjustMode === 'add'
-                    ? 'Units Received (to add) *'
+                    ? 'How many did you receive?'
                     : adjustMode === 'subtract'
-                      ? 'Units to Remove *'
-                      : 'Exact Physical Stock Count *'}
+                      ? 'How many are gone?'
+                      : 'Exact stock count'}
                 </label>
                 <input
                   id="adj-qty"
@@ -831,7 +769,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                   step={1}
                   inputMode="numeric"
                   className="sb-input"
-                  placeholder="Enter whole units"
+                  placeholder="Whole units"
                   value={adjustQtyInput}
                   onChange={(e) => setAdjustQtyInput(e.target.value)}
                   required
@@ -840,7 +778,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
 
               <div className="sb-field">
                 <label className="sb-label" htmlFor="adj-reason">
-                  Reason / Note (optional)
+                  Reason (optional)
                 </label>
                 <input
                   id="adj-reason"
@@ -858,7 +796,7 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                 />
               </div>
 
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="sb-dialog-actions">
                 <button
                   type="button"
                   className="sb-btn"
@@ -875,13 +813,13 @@ export const StockScreen: React.FC<StockScreenProps> = ({
                     (previewAdjustedStock !== null && previewAdjustedStock < 0)
                   }
                 >
-                  {isSavingAdjustment ? 'Updating...' : 'Save Stock Update'}
+                  {isSavingAdjustment ? 'Saving…' : 'Save stock change'}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 };

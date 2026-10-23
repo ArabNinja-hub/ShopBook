@@ -12,30 +12,42 @@ import {
   restoreBackupFromJson,
 } from '../services/exportService';
 import { getLocalSyncOverview } from '../services/syncClientService';
+import { Banner } from './ui/Banner';
+import { ConfirmDialog } from './ui/ConfirmDialog';
+import { Modal } from './ui/Modal';
 
 interface ShopSettingsModalProps {
   isOpen: boolean;
   settings: ShopSettings;
+  isSignedIn: boolean;
+  pendingOutboxCount: number;
+  apiReachable: boolean | null;
   onClose: () => void;
   onSaveShopName: (name: string) => Promise<void>;
-  onLoadDemoData: () => Promise<void>;
-  onRemoveDemoData: () => Promise<void>;
+  onOpenSampleData: () => void;
+  onOpenAccount: () => void;
   onDataChanged: () => Promise<void>;
 }
 
 export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
   isOpen,
   settings,
+  isSignedIn,
+  pendingOutboxCount,
+  apiReachable,
   onClose,
   onSaveShopName,
-  onLoadDemoData,
-  onRemoveDemoData,
+  onOpenSampleData,
+  onOpenAccount,
   onDataChanged,
 }) => {
   const [nameInput, setNameInput] = useState(settings.shopName);
   const [isBusy, setIsBusy] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
+  const [pendingRestoreFile, setPendingRestoreFile] = useState<File | null>(null);
+  const [pendingSyncWarning, setPendingSyncWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Sync shop name input whenever settings update (e.g. after backup restore)
@@ -48,16 +60,15 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
     if (isOpen) {
       setFeedback(null);
       setError(null);
+      setShowMoreOptions(false);
       setNameInput(settings.shopName);
     }
   }, [isOpen, settings.shopName]);
 
-  if (!isOpen) return null;
-
   const dateStamp = toLocalDateKey();
 
-  const handleSaveName = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveName = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
     setFeedback(null);
     setIsBusy(true);
@@ -92,314 +103,292 @@ export const ShopSettingsModal: React.FC<ShopSettingsModalProps> = ({
     }
   };
 
-  const handleRestoreFileChange = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  const handleRestoreFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
     if (!file) return;
-
-    const syncCheck = await getLocalSyncOverview().catch(() => null);
-    const pendingSyncNote =
-      syncCheck && syncCheck.pendingOutboxCount > 0
-        ? `\n\nWARNING: ${syncCheck.pendingOutboxCount} offline record(s) have NOT been synchronized to your cloud account yet and will be replaced!`
-        : '';
-
-    const confirmed = window.confirm(
-      `Restore shop records from "${file.name}"?\n\nThis will replace the current records stored in this browser with the backup file.${pendingSyncNote}`
-    );
-    if (!confirmed) return;
 
     setError(null);
     setFeedback(null);
+
+    const syncCheck = await getLocalSyncOverview().catch(() => null);
+    setPendingSyncWarning(
+      syncCheck && syncCheck.pendingOutboxCount > 0
+        ? `${syncCheck.pendingOutboxCount} record(s) on this phone have not reached your cloud account yet and would be replaced.`
+        : null
+    );
+    setPendingRestoreFile(file);
+  };
+
+  const runRestore = async () => {
+    if (!pendingRestoreFile) return;
     setIsBusy(true);
+    setError(null);
+    setFeedback(null);
     try {
-      const rawJson = await file.text();
+      const rawJson = await pendingRestoreFile.text();
       const stats = await restoreBackupFromJson(rawJson);
       await onDataChanged();
       setFeedback(
-        `Backup restored: ${stats.productsCount} products, ${stats.salesCount} sales, and ${stats.customersCount} customers.`
+        `Backup restored: ${stats.productsCount} products, ${stats.salesCount} sales and ${stats.customersCount} customers.`
       );
+      setPendingRestoreFile(null);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to restore JSON backup.'
-      );
+      setError(err instanceof Error ? err.message : 'Failed to restore the backup file.');
+      setPendingRestoreFile(null);
     } finally {
       setIsBusy(false);
     }
   };
 
+  const storageSummary = isSignedIn
+    ? pendingOutboxCount > 0
+      ? `${pendingOutboxCount} record(s) are saved on this phone and still waiting to sync to your ShopBook account.`
+      : 'Your records are saved on this phone and synced to your ShopBook account.'
+    : 'Your records are saved on this phone only. If this phone is lost, reset or its browser storage is cleared, un-backed-up records are gone.';
+
   return (
-    <div
-      className="sb-modal-backdrop"
-      onClick={() => !isBusy && onClose()}
-    >
-      <div className="sb-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="sb-modal-header">
-          <h2 className="sb-modal-title">Shop Settings, Exports &amp; Backup</h2>
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={onClose}
+        title="Settings"
+        closeLabel="Close settings"
+        dismissible={!isBusy}
+      >
+        {feedback && (
+          <Banner tone="success" onDismiss={() => setFeedback(null)}>
+            {feedback}
+          </Banner>
+        )}
+        {error && (
+          <Banner tone="error" onDismiss={() => setError(null)}>
+            {error}
+          </Banner>
+        )}
+
+        <section className="sb-settings-section">
+          <h3 className="sb-settings-title">Shop name</h3>
+          <form onSubmit={handleSaveName}>
+            <label className="sb-label" htmlFor="settings-shop-name">
+              Shop Display Name
+            </label>
+            <div className="sb-inline-form">
+              <input
+                id="settings-shop-name"
+                type="text"
+                className="sb-input"
+                value={nameInput}
+                onChange={(event) => setNameInput(event.target.value)}
+                required
+              />
+              <button type="submit" className="sb-btn" disabled={isBusy}>
+                Save
+              </button>
+            </div>
+            <p className="sb-hint">This is the name shown at the top of ShopBook.</p>
+          </form>
+        </section>
+
+        <section className="sb-settings-section">
+          <h3 className="sb-settings-title">Where your records are kept</h3>
+          <p className="sb-body-text">{storageSummary}</p>
+          {apiReachable === false && (
+            <Banner tone="warning">
+              The ShopBook server cannot be reached from this copy of the app, so
+              cloud sync is unavailable. Sales, stock and credit still work and
+              are saved on this phone.
+            </Banner>
+          )}
+          <button type="button" className="sb-btn sb-btn-sm" onClick={onOpenAccount}>
+            {isSignedIn ? 'Account & cloud sync' : 'Turn on cloud sync'}
+          </button>
+        </section>
+
+        <section className="sb-settings-section">
+          <h3 className="sb-settings-title">Back up your records</h3>
+          <p className="sb-hint">
+            {settings.lastBackupAt
+              ? `Last backup downloaded: ${formatDateTimeReadable(settings.lastBackupAt)}`
+              : 'No backup downloaded from this phone yet.'}
+          </p>
           <button
             type="button"
-            className="sb-close-btn"
+            className="sb-btn sb-btn-primary sb-btn-block"
             disabled={isBusy}
-            onClick={onClose}
-            aria-label="Close settings"
+            onClick={() =>
+              runDownload(
+                'full backup',
+                `shopbook-backup-${dateStamp}.json`,
+                'application/json;charset=utf-8',
+                () => createFullBackupJson()
+              )
+            }
           >
-            ×
+            Download backup
           </button>
-        </div>
+          <p className="sb-hint">
+            Save the file to Google Drive, email or WhatsApp so a lost phone does
+            not lose your records.
+          </p>
 
-        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-          <img
-            src={`${import.meta.env.BASE_URL}brand/shopbook-logo.png`}
-            alt="ShopBook"
-            style={{ width: 150, height: 'auto', display: 'inline-block' }}
-          />
-        </div>
-
-        {feedback && (
-          <div className="sb-alert sb-alert-success" role="status">
-            <span>{feedback}</span>
-          </div>
-        )}
-
-        {error && (
-          <div className="sb-alert sb-alert-error" role="alert">
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Shop Name */}
-        <form onSubmit={handleSaveName} style={{ marginBottom: 16 }}>
-          <label className="sb-label" htmlFor="settings-shop-name">
-            Shop Display Name
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              id="settings-shop-name"
-              type="text"
-              className="sb-input"
-              value={nameInput}
-              onChange={(e) => setNameInput(e.target.value)}
-              required
-            />
-            <button type="submit" className="sb-btn" disabled={isBusy}>
-              Save
-            </button>
-          </div>
-        </form>
-
-        {/* Local Storage Warning & Backup Workflow */}
-        <div className="sb-alert sb-alert-warn" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: '0.82rem' }}>
-            <strong>Important — Local Device Storage:</strong>
-            <div style={{ marginTop: 4 }}>
-              Your records are currently saved inside this browser&apos;s local
-              database (IndexedDB) so you can record sales without mobile data.
-              However, clearing browser storage, resetting the phone, or losing
-              the device will erase unbacked-up data.
-            </div>
-            <div style={{ marginTop: 4 }}>
-              <strong>Recommended daily habit:</strong> Tap{' '}
-              <em>Download Full Backup (JSON)</em> at closing time and save or
-              send the file to Google Drive, email, or WhatsApp.
-            </div>
-          </div>
-        </div>
-
-        {/* Full JSON Backup & Restore */}
-        <div style={{ marginBottom: 16 }}>
-          <div className="sb-label">Full Shop Backup &amp; Recovery (JSON)</div>
-          <div style={{ fontSize: '0.79rem', color: 'var(--sb-text-muted)', marginBottom: 8 }}>
-            {settings.lastBackupAt
-              ? `Last JSON backup: ${formatDateTimeReadable(settings.lastBackupAt)}`
-              : 'No JSON backup downloaded yet.'}
-          </div>
-
-          <div className="sb-grid-2">
-            <button
-              type="button"
-              className="sb-btn sb-btn-primary"
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Full JSON Backup',
-                  `shopbook-backup-${dateStamp}.json`,
-                  'application/json;charset=utf-8',
-                  () => createFullBackupJson()
-                )
-              }
-            >
-              Download Backup (JSON)
-            </button>
-
-            <button
-              type="button"
-              className="sb-btn"
-              disabled={isBusy}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              Restore Backup (JSON)
-            </button>
-          </div>
-
+          <h3 className="sb-settings-title sb-settings-title-spaced">
+            Restore a backup
+          </h3>
+          <Banner tone="warning">
+            Restoring replaces everything saved in this browser with the contents
+            of the backup file.
+          </Banner>
+          <button
+            type="button"
+            className="sb-btn sb-btn-block"
+            disabled={isBusy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Choose backup file
+          </button>
           <input
             ref={fileInputRef}
             type="file"
             accept=".json,application/json"
-            style={{ display: 'none' }}
+            className="sb-visually-hidden"
             onChange={handleRestoreFileChange}
           />
-        </div>
+        </section>
 
-        {/* Spreadsheet CSV Exports */}
-        <div style={{ marginBottom: 16 }}>
-          <div className="sb-label">Spreadsheet Exports (CSV for Excel / Sheets)</div>
-          <div className="sb-grid-2">
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Sales Receipts CSV',
-                  `shopbook-sales-${dateStamp}.csv`,
-                  'text/csv;charset=utf-8',
-                  exportSalesCsv
-                )
-              }
-            >
-              Sales (CSV)
-            </button>
+        <section className="sb-settings-section">
+          <button
+            type="button"
+            className="sb-disclosure"
+            aria-expanded={showMoreOptions}
+            aria-controls="sb-settings-more"
+            onClick={() => setShowMoreOptions((value) => !value)}
+          >
+            <span>More options</span>
+            <span aria-hidden="true">{showMoreOptions ? '−' : '+'}</span>
+          </button>
 
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Sale Items CSV',
-                  `shopbook-sale-items-${dateStamp}.csv`,
-                  'text/csv;charset=utf-8',
-                  exportSaleItemsCsv
-                )
-              }
-            >
-              Sale Items (CSV)
-            </button>
+          {showMoreOptions && (
+            <div id="sb-settings-more" className="sb-settings-more">
+              <h3 className="sb-settings-title">Spreadsheet exports (CSV)</h3>
+              <div className="sb-grid-2">
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-sm"
+                  disabled={isBusy}
+                  onClick={() =>
+                    runDownload(
+                      'sales CSV',
+                      `shopbook-sales-${dateStamp}.csv`,
+                      'text/csv;charset=utf-8',
+                      exportSalesCsv
+                    )
+                  }
+                >
+                  Sales
+                </button>
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-sm"
+                  disabled={isBusy}
+                  onClick={() =>
+                    runDownload(
+                      'sale items CSV',
+                      `shopbook-sale-items-${dateStamp}.csv`,
+                      'text/csv;charset=utf-8',
+                      exportSaleItemsCsv
+                    )
+                  }
+                >
+                  Sale items
+                </button>
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-sm"
+                  disabled={isBusy}
+                  onClick={() =>
+                    runDownload(
+                      'products CSV',
+                      `shopbook-products-${dateStamp}.csv`,
+                      'text/csv;charset=utf-8',
+                      exportProductsCsv
+                    )
+                  }
+                >
+                  Products &amp; stock
+                </button>
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-sm"
+                  disabled={isBusy}
+                  onClick={() =>
+                    runDownload(
+                      'customer balances CSV',
+                      `shopbook-customers-${dateStamp}.csv`,
+                      'text/csv;charset=utf-8',
+                      exportCustomerBalancesCsv
+                    )
+                  }
+                >
+                  Customer balances
+                </button>
+                <button
+                  type="button"
+                  className="sb-btn sb-btn-sm sb-grid-span-2"
+                  disabled={isBusy}
+                  onClick={() =>
+                    runDownload(
+                      'credit history CSV',
+                      `shopbook-credit-history-${dateStamp}.csv`,
+                      'text/csv;charset=utf-8',
+                      exportCreditTransactionsCsv
+                    )
+                  }
+                >
+                  Credit &amp; repayment history
+                </button>
+              </div>
 
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Products & Stock CSV',
-                  `shopbook-products-${dateStamp}.csv`,
-                  'text/csv;charset=utf-8',
-                  exportProductsCsv
-                )
-              }
-            >
-              Products &amp; Stock (CSV)
-            </button>
-
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Customer Balances CSV',
-                  `shopbook-customers-${dateStamp}.csv`,
-                  'text/csv;charset=utf-8',
-                  exportCustomerBalancesCsv
-                )
-              }
-            >
-              Customer Balances (CSV)
-            </button>
-
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              style={{ gridColumn: '1 / -1' }}
-              disabled={isBusy}
-              onClick={() =>
-                runDownload(
-                  'Credit Transactions CSV',
-                  `shopbook-credit-history-${dateStamp}.csv`,
-                  'text/csv;charset=utf-8',
-                  exportCreditTransactionsCsv
-                )
-              }
-            >
-              Credit &amp; Repayment History (CSV)
-            </button>
-          </div>
-        </div>
-
-        {/* Sample Demo Data Controls */}
-        <div
-          style={{
-            paddingTop: 12,
-            borderTop: '1px solid var(--sb-border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            flexWrap: 'wrap',
-          }}
-        >
-          <span style={{ fontSize: '0.8rem', color: 'var(--sb-text-muted)' }}>
-            Development / training sample data:
-          </span>
-          {settings.hasDemoData ? (
-            <button
-              type="button"
-              className="sb-btn sb-btn-danger sb-btn-sm"
-              disabled={isBusy}
-              onClick={async () => {
-                setIsBusy(true);
-                setError(null);
-                try {
-                  await onRemoveDemoData();
-                  setFeedback('Removed all [DEMO] sample records.');
-                } catch (err) {
-                  setError(
-                    err instanceof Error ? err.message : 'Failed to remove demo data.'
-                  );
-                } finally {
-                  setIsBusy(false);
-                }
-              }}
-            >
-              Remove [DEMO] Data
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="sb-btn sb-btn-sm"
-              disabled={isBusy}
-              onClick={async () => {
-                setIsBusy(true);
-                setError(null);
-                try {
-                  await onLoadDemoData();
-                  setFeedback('Loaded clearly marked [DEMO] sample data.');
-                } catch (err) {
-                  setError(
-                    err instanceof Error ? err.message : 'Failed to load demo data.'
-                  );
-                } finally {
-                  setIsBusy(false);
-                }
-              }}
-            >
-              Load Sample [DEMO] Data
-            </button>
+              <h3 className="sb-settings-title sb-settings-title-spaced">
+                Training data
+              </h3>
+              <p className="sb-hint">
+                Practise with clearly marked <strong>[DEMO]</strong> products,
+                sales and customers. Kept separate from your real records.
+              </p>
+              <button type="button" className="sb-btn sb-btn-sm" onClick={onOpenSampleData}>
+                {settings.hasDemoData ? 'Manage sample data' : 'Load sample data'}
+              </button>
+            </div>
           )}
-        </div>
-      </div>
-    </div>
+        </section>
+      </Modal>
+
+      <ConfirmDialog
+        isOpen={pendingRestoreFile !== null}
+        title="Replace the records on this phone?"
+        message={
+          <>
+            <p>
+              Restoring <strong>{pendingRestoreFile?.name}</strong> will replace
+              everything currently saved in this browser with the contents of
+              that file.
+            </p>
+            {pendingSyncWarning && (
+              <p className="sb-confirm-warning">{pendingSyncWarning}</p>
+            )}
+            <p>This cannot be undone. Download a backup first if unsure.</p>
+          </>
+        }
+        confirmLabel="Restore backup"
+        tone="danger"
+        isBusy={isBusy}
+        onConfirm={() => void runRestore()}
+        onCancel={() => {
+          setPendingRestoreFile(null);
+          setPendingSyncWarning(null);
+        }}
+      />
+    </>
   );
 };
